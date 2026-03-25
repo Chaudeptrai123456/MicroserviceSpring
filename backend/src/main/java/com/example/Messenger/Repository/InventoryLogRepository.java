@@ -3,6 +3,7 @@ package com.example.Messenger.Repository;
 import com.example.Messenger.Entity.InventoryLog;
 import com.example.Messenger.Entity.Product;
 import com.example.Messenger.Record.Type.InventoryType;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
@@ -12,29 +13,29 @@ import java.util.List;
 @Repository
 public interface InventoryLogRepository extends JpaRepository<InventoryLog, Long> {
     @Query("""
-        SELECT COALESCE(SUM(-il.quantity), 0)
-        FROM InventoryLog il
-        WHERE il.type = 'SALE'
-          AND il.product.warehouse.id = :warehouseId
-          AND il.createdAt BETWEEN :from AND :to
-    """)
+    SELECT COALESCE(SUM(-il.quantity),0)
+    FROM InventoryLog il
+    WHERE il.warehouse.id = :warehouseId
+    AND il.type = com.example.Messenger.Record.Type.InventoryType.SALE
+    AND il.createdAt BETWEEN :from AND :to
+""")
     long totalSoldQuantity(
-            String warehouseId,
-            LocalDateTime from,
-            LocalDateTime to
+            @Param("warehouseId") String warehouseId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
     );
 
     @Query("""
-        SELECT COALESCE(SUM(-il.quantity * il.unitPrice), 0)
-        FROM InventoryLog il
-        WHERE il.type = 'SALE'
-          AND il.product.warehouse.id = :warehouseId
-          AND il.createdAt BETWEEN :from AND :to
-    """)
+    SELECT COALESCE(SUM(ABS(il.quantity) * il.unitPrice),0)
+    FROM InventoryLog il
+    WHERE il.type = com.example.Messenger.Record.Type.InventoryType.SALE
+      AND il.warehouse.id = :warehouseId
+      AND il.createdAt BETWEEN :from AND :to
+""")
     double totalRevenue(
-            String warehouseId,
-            LocalDateTime from,
-            LocalDateTime to
+            @Param("warehouseId") String warehouseId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
     );
     @Query("""
     SELECT l.warehouse.id, SUM(l.quantity)

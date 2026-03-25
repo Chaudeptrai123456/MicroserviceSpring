@@ -16,11 +16,10 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   console.log("TopBar user:", user);
   const [open, setOpen] = useState(false);
   const handleLogout = async () => {
-    await backend.get("http://localhost:9999/logout",  {
+    await backend.get(API_PATHS.AUTH.LOGOUT,  {
       withCredentials: true,
     });
-      clearUser();        // ❗ QUAN TRỌNG
-
+      clearUser();         
     router.push("/login");
   };
   return (

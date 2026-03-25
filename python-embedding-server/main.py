@@ -18,25 +18,25 @@ client = QdrantClient(host="localhost", port=6333)
 init_collections()
 app = FastAPI()
 setup_tracing(app)  
-
+from fastapi.middleware.cors import CORSMiddleware
+ 
 class SearchRequest(BaseModel):
     description: str
 class RecommendRequest(BaseModel):
     email: str
-
 def require_admin(user=Depends(verify_token)):
     roles = user.get("__roles__", [])
-
     if "ADMIN" not in roles and "ROLE_ADMIN" not in roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin permission required"
         )
-
     return user
-@app.post("/search")
+@app.post("/search/product/description")
 def handle_search(req: SearchRequest):
+    print("search in python localhost:8000 and description : ",req.description)
     result =  search_with_description(req.description)
+    print("test result in py localhost: 8000 and resutl : ",result)
     return {"result": result}
 @app.post("/recomments")
 def handle_recomment_product(req: RecommendRequest,user=Depends(verify_token)):
@@ -152,7 +152,7 @@ def get_all_products():
 class SimilarProductRequest(BaseModel):
     text: str
     limit: Optional[int] = 5
-@app.post("/find_similar_products")
+@app.post("/search/product/find_similar_products")
 def find_similar_product(body: dict = Body(...)):
     try:
         # Lấy text từ body JSON

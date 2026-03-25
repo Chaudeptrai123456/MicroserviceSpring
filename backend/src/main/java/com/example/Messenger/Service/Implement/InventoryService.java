@@ -33,12 +33,11 @@ public class InventoryService {
             double importPrice,
             String supplier,
             String note,
-            String refId        // 👈 ref nghiệp vụ
+            String refId
     ) {
-        // 1️⃣ LOCK product
-        Product product = productRepository.findById(productId)
+        Product product = productRepository
+                .lockById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
-        // 2️⃣ Idempotency check (quan trọng)
         boolean exists = logRepository
                 .existsByProductIdAndRefIdAndType(
                         productId,
@@ -49,7 +48,6 @@ public class InventoryService {
             // đã import rồi → bỏ qua
             return;
         }
-        // 3️⃣ Tạo StockImport (nguồn dữ liệu nhập)
         StockImport stockImport = new StockImport();
         stockImport.setProduct(product);
         stockImport.setQuantity(quantity);
@@ -59,20 +57,18 @@ public class InventoryService {
 
         stockImportRepository.save(stockImport);
 
-        // 4️⃣ Update kho
         int beforeQty = product.getQuantity();
         int afterQty = beforeQty + quantity;
 
         product.setQuantity(afterQty);
         productRepository.save(product);
 
-        // 5️⃣ Ghi InventoryLog (dòng chảy kho)
         InventoryLog log = new InventoryLog();
         log.setProduct(product);
         log.setType(IMPORT);
-        log.setQuantity(quantity);          // + nhập
+        log.setQuantity(quantity);
         log.setUnitPrice(importPrice);
-        log.setRefId(refId);                // 👈 liên kết nghiệp vụ
+        log.setRefId(refId);
         logRepository.save(log);
     }
     @Transactional
@@ -132,7 +128,7 @@ public class InventoryService {
     @Transactional
     public void sell(String productId,
                      int quantity,
-                     String orderId) {
+                     String orderId, String warehouseId) {
 
         Product product = productRepository
                 .lockById(productId)
@@ -154,8 +150,8 @@ public class InventoryService {
                 product,
                 InventoryType.SALE,
                 -quantity,
-                product.getPrice(),
-                "OrderId " + orderId
+                product.getPrice().doubleValue(),
+                "OrderId " + orderId + " warehouseID: " + warehouseId
         ));
     }
 
@@ -191,11 +187,7 @@ public class InventoryService {
         }
     }
 
-    /**
-     * =========================
-     * ADMIN CHỈNH KHO
-     * =========================
-     */
+
     @Transactional
     public void adjustStock(String productId,
                             int newQuantity,
@@ -203,18 +195,26 @@ public class InventoryService {
 
         Product product = productRepository
                 .lockById(productId)
-                .orElseThrow();
+                .orElseThrow(() ->
+                        new RuntimeException("Product not found: " + productId)
+                );
 
-        int diff = newQuantity;
+        if (newQuantity < 0) {
+            throw new IllegalArgumentException("Stock cannot be negative");
+        }
 
-//        product.setQuantity(newQuantity);
+        int diff = newQuantity - product.getQuantity();
 
-        logRepository.save(new InventoryLog(
+        product.setQuantity(newQuantity);
+
+        InventoryLog log = new InventoryLog(
                 product,
                 InventoryType.ADJUST,
                 diff,
-                product.getPrice(),
+                product.getPrice().doubleValue(),
                 reason
-        ));
+        );
+
+        logRepository.save(log);
     }
 }

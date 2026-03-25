@@ -23,7 +23,7 @@ export default function WarehouseActionTable() {
         const token = user.token;
         const res = await backend.get(API_PATHS.WAREHOUSE.GET_ALL, {
           headers: { Authorization: token ? `Bearer ${token}` : "" },
-        });
+        }).catch(err=>{console.error("Error in API call:", err); throw err; });
         console.log("Fetched warehouses:", res.data);
         setWareHouses(res.data);
       } catch (err) {

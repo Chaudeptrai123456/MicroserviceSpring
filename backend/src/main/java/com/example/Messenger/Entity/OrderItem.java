@@ -1,7 +1,5 @@
 package com.example.Messenger.Entity;
 
-import com.fasterxml.jackson.annotation.JsonBackReference;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -23,8 +21,8 @@ public class OrderItem {
 
     private Integer quantity;
 
-    private Double sellPrice;
-    private Double costPrice;
+    private BigDecimal sellPrice;
+    private BigDecimal costPrice;
     public String getId() {
         return id;
     }
@@ -41,19 +39,19 @@ public class OrderItem {
         this.quantity = quantity;
     }
 
-    public Double getSellPrice() {
+    public BigDecimal getSellPrice() {
         return sellPrice;
     }
 
-    public void setSellPrice(Double sellPrice) {
+    public void setSellPrice(BigDecimal sellPrice) {
         this.sellPrice = sellPrice;
     }
 
-    public Double getCostPrice() {
+    public BigDecimal getCostPrice() {
         return costPrice;
     }
 
-    public void setCostPrice(Double costPrice) {
+    public void setCostPrice(BigDecimal costPrice) {
         this.costPrice = costPrice;
     }
 

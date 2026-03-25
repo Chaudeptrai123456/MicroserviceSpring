@@ -23,7 +23,7 @@ export default function OwnerLayout({
         </div>
 
         {/* BODY */}
-        <div className="flex flex-1 overflow-hidden relative">
+        <div className="flex flex-1 overflow-y relative">
           {/* SIDEBAR DESKTOP */}
           <aside className="hidden md:block w-64 bg-slate-900 border-r border-slate-800">
             Side bar

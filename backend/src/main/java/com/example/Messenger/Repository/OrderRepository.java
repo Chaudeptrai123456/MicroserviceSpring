@@ -154,3 +154,12 @@ WHERE o.status = 'CONFIRMED';
             """)
     Optional<ChurnRisk> calculateChurnRisk();
 }
+
+/**
+ *
+ * Select coalesce()
+ *
+ *
+ *
+ *
+ * */

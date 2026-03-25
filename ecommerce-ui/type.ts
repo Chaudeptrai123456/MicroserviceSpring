@@ -1,4 +1,3 @@
-
 export interface UserProfile {
   user_id: string;
   email: string;
@@ -45,3 +44,65 @@ export interface AIAnalysis {
   recommendations: string[];
   strategic_score: number;
 }
+export interface DashboardData {
+  totalRevenue: number;
+  totalCost: number;
+  profitMargin: number;
+  totalOrders: number;
+  totalCustomers: number;
+  orderFrequency: number;
+  avgOrderValue: number;
+}
+export interface ProductChartInfo {
+  cost: number;
+  date: Date;
+  margin: number;
+  name: string;
+  revenue: number;
+}
+export interface ProductCompositeChartProps {
+  orders: ProductChartInfo[];
+}
+export type Feature = {
+  name: string;
+  value: string;
+};
+export type category = {
+  id: string;
+  name: string;
+  description: string;
+};
+export type Product = {
+  id: string;
+  name: string;
+  price: number;
+  avgCost: number;
+  quantity: number;
+  description: string;
+  category: category;
+  images?: ProductImage[];
+  features?: Feature[];
+};
+export type Category = {
+  id: string;
+  name: string;
+};
+export type ProductImage = {
+  contentType: string;
+  filename: string;
+  id: number;
+  url: string;
+};
+export type CategorySearch = {
+  name: string;
+  description: string;
+};
+export type ProductSearch = {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  image: string[];
+  category: CategorySearch;
+  feature: Feature[];
+};

@@ -9,6 +9,7 @@ import com.example.Messenger.Service.PendingOrderService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -49,18 +50,17 @@ public class OrderServiceImpl implements OrderService {
         order.setCreatedAt(LocalDateTime.now());
         order.setStatus("PENDING");
         Set<OrderItem> items = new HashSet<>();
-        double totalAmount = 0.0;
+        BigDecimal totalAmount = BigDecimal.ZERO;
         for (OrderItemRequest itemReq : request.items()) {
             Product product = productRepository.findById(itemReq.productId())
                     .orElseThrow(() -> new RuntimeException("Product not found: " + itemReq.productId()));
-            // ✅ Kiểm tra tồn kho
+            //  Kiểm tra tồn kho
             if (product.getQuantity() < itemReq.quantity()) {
                 throw new RuntimeException("Not enough stock for product: " + product.getName());
             }
-            // ✅ Trừ tồn kho đúng một lần
+            //  Trừ tồn kho đúng một lần
             product.setQuantity(product.getQuantity() - itemReq.quantity());
             productRepository.save(product);
-            // ✅ Tạo OrderItem
             OrderItem item = new OrderItem();
             item.setId(generateIdItems(product.getName(), order.getId()));
             item.setProduct(product);
@@ -68,8 +68,9 @@ public class OrderServiceImpl implements OrderService {
 //            item.setPrice(product.getCurrentPrice());
             // ⚡ Quan trọng: Gắn ngược lại
             item.setOrder(order);
+            item.setSellPrice(product.getCurrentPrice());
             System.out.println("items " + item.getId());
-            totalAmount += product.getCurrentPrice() * itemReq.quantity();
+            totalAmount.add(product.getCurrentPrice().multiply(BigDecimal.valueOf(itemReq.quantity())));
             items.add(item);
         }
         System.out.println("test " + items.stream().toString());
@@ -163,7 +164,7 @@ public class OrderServiceImpl implements OrderService {
         order.setCreatedAt(LocalDateTime.now());
         order.setStatus("CONFIRMED");
 
-        double totalAmount = 0.0;
+        BigDecimal totalAmount = BigDecimal.ZERO;
         Set<OrderItem> items = new HashSet<>();
 
         for (OrderItemRequest itemReq : request.items()) {
@@ -189,17 +190,19 @@ public class OrderServiceImpl implements OrderService {
 
             stock.setQuantity(stock.getQuantity() - itemReq.quantity());
             warehouseStockRepository.save(stock);
-            // correct
-            var importPrice = this.stockImportRepository.findLatestImportPrice(product.getId(), warehouse.getId());
+            BigDecimal importPrice =  stockImportRepository.findLatestImportPrice(product.getId(), warehouse.getId());
             OrderItem item = new OrderItem();
             item.setId(UUID.randomUUID().toString());
             item.setProduct(product);
             item.setQuantity(itemReq.quantity());
             item.setOrder(order);
-            item.setSellPrice(product.getPrice() - (product.getPrice() * product.getCurrentDiscountPercentage()));
-            item.setCostPrice(importPrice);
+            item.setSellPrice(product.getPrice().subtract(product.getPrice().multiply(product.getCurrentDiscountPercentage())));
+            BigDecimal sellPrice = product.getPrice() .multiply(BigDecimal.ONE.subtract(product.getCurrentDiscountPercentage()));
+            item.setSellPrice(sellPrice);
             items.add(item);
-            totalAmount += item.getSellPrice() * itemReq.quantity();
+            totalAmount = totalAmount.add(
+                    item.getSellPrice().multiply(BigDecimal.valueOf(itemReq.quantity()))
+            );
         }
 
         order.setItems(items);
@@ -207,7 +210,7 @@ public class OrderServiceImpl implements OrderService {
 
         Order saved = orderRepository.save(order);
         for (OrderItemRequest itemReq : request.items()) {
-            inventoryService.sell(itemReq.productId(), itemReq.quantity(), saved.getId());
+            inventoryService.sell(itemReq.productId(), itemReq.quantity(), saved.getId(),warehouse.getId());
         }
         pendingOrderService.deletePendingOrder(token);
         gmailServiceImp.sendSuccessEmail(request.customerEmail(), saved);
@@ -254,5 +257,21 @@ public class OrderServiceImpl implements OrderService {
         }
     private int totalStockOfWarehouse(Warehouse warehouse) {
         return warehouseStockRepository.sumQuantityByWarehouse(warehouse);
+    }
+    private BigDecimal calculateSellPrice(Product product) {
+
+        Discount activeDiscount = product.getDiscounts()
+                .stream()
+                .filter(Discount::isActive)
+                .findFirst()
+                .orElse(null);
+
+        if (activeDiscount == null) {
+            return product.getPrice();
+        }
+
+        return product.getPrice().multiply(
+                BigDecimal.ONE.subtract(activeDiscount.getPercentage())
+        );
     }
 }

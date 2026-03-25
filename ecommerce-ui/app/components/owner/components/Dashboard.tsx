@@ -19,28 +19,49 @@ import {
   Code2,
   Server,
 } from "lucide-react";
+import { BehavioralRadar } from "./charts";
 import { UserProfile, AIAnalysis } from "../../../../type";
 import { API_PATHS } from "@/utils/apiPaths";
-import { BehavioralRadar, OrderPie } from "./charts";
+// import { BehavioralRadar, OrderPie } from "./charts";
 import { apiClient } from "@/utils/axios.client";
 import { UserContext } from "@/context/UserContext";
+import { ProductChartInfo, DashboardData } from "../../../../type";
+import { ProductCompositeChart } from "./Chart/ProductCompositeChart";
 const backend = apiClient("BACKEND");
+const colorMap: Record<string, string> = {
+  blue: "bg-blue-50 text-blue-600",
+  indigo: "bg-indigo-50 text-indigo-600",
+  emerald: "bg-emerald-50 text-emerald-600",
+  rose: "bg-rose-50 text-rose-600",
+};
+
 const KPICard: React.FC<{
   title: string;
   value: string | number;
   subValue?: string;
   icon: React.ReactNode;
   trend?: "up" | "down";
-  color?: string;
+  color?: keyof typeof colorMap;
 }> = ({ title, value, subValue, icon, trend, color = "blue" }) => (
-  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between h-full hover:shadow-md transition-all">
-    <div className="flex justify-between items-start mb-4">
-      <div className={`p-3 rounded-xl bg-${color}-50 text-${color}-600`}>
-        {icon}
-      </div>
+  <div
+    className="
+    bg-white
+    p-4 sm:p-6
+    rounded-2xl
+    shadow-sm
+    border border-slate-100
+    flex flex-col justify-between
+    h-full
+    hover:shadow-md
+    transition-all
+  "
+  >
+    <div className="flex justify-between items-start mb-3 sm:mb-4">
+      <div className={`p-2 sm:p-3 rounded-xl ${colorMap[color]}`}>{icon}</div>
+
       {trend && (
         <span
-          className={`flex items-center text-xs font-semibold px-2 py-1 rounded-full ${
+          className={`hidden sm:flex items-center text-xs font-semibold px-2 py-1 rounded-full ${
             trend === "up"
               ? "bg-emerald-50 text-emerald-600"
               : "bg-rose-50 text-rose-600"
@@ -56,29 +77,32 @@ const KPICard: React.FC<{
       )}
     </div>
     <div>
-      <h3 className="text-slate-500 text-sm font-medium mb-1">{title}</h3>
+      <h3 className="text-slate-500 text-xs sm:text-sm font-medium mb-1">
+        {title}
+      </h3>
       <div className="flex items-baseline gap-2">
-        <span className="text-2xl font-bold text-slate-900">{value}</span>
+        <span className="text-xl sm:text-2xl font-bold text-slate-900">
+          {value}
+        </span>
       </div>
-      {subValue && <p className="text-xs text-slate-400 mt-1">{subValue}</p>}
+
+      {subValue && (
+        <p className="hidden sm:block text-xs text-slate-400 mt-1">
+          {subValue}
+        </p>
+      )}
     </div>
   </div>
 );
-type DashboardData = {
-  totalRevenue: number;
-  totalCost: number;
-  profitMargin: number;
-  totalOrders: number;
-  totalCustomers: number;
-  orderFrequency: number;
-  avgOrderValue: number;
-};
 
 const App: React.FC = () => {
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
+  const [productInfoChart, setProductInfoChart] = useState<ProductChartInfo[]>(
+    [],
+  );
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [view, setView] = useState<"dashboard" | "backend">("dashboard");
-  const [data, setData ] = useState<DashboardData | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
   const ctx = useContext(UserContext);
   if (!ctx) return null;
   const { user, loading } = ctx;
@@ -100,18 +124,35 @@ const App: React.FC = () => {
   const formatPercent = (value: number, digits = 2) =>
     `${(value * 100).toFixed(digits)}%`;
   useEffect(() => {
+    if (!user.token) return;
     fetchWarehouses();
+    handleAIAnalysis();
   }, [user.token]);
+
   const handleAIAnalysis = async () => {
-    setIsAnalyzing(true);
     try {
+      const token = user.token;
+
+      const chart_info = await backend.post(
+        API_PATHS.WAREHOUSE.CHART_INFO,
+        {
+          fromDate: "2026-01-01",
+          toDate: "2026-01-31",
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+      console.log("test chart info:", chart_info.data);
+      setProductInfoChart(chart_info.data);
     } catch (err) {
       console.error(err);
     } finally {
       setIsAnalyzing(false);
     }
   };
-
   const formatCurrency = (val: number) =>
     new Intl.NumberFormat("vi-VN", {
       style: "currency",
@@ -119,7 +160,7 @@ const App: React.FC = () => {
     }).format(val);
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-12">
+    <div className="min-h-screen bg-slate-50 pb-12 overflow-y-auto">
       {/* Navbar */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
         {view === "dashboard" ? (
@@ -154,7 +195,7 @@ const App: React.FC = () => {
 
             {/* AI Insight Box */}
             {aiAnalysis && (
-              <div className="bg-white rounded-3xl border-2 border-indigo-100 shadow-xl p-8 mb-8 relative overflow-hidden">
+              <div className="bg-white rounded-3xl border-2 border-indigo-100 shadow-xl p-8 mb-8 relative  overflow-y-auto">
                 <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
                   <BrainCircuit className="w-32 h-32" />
                 </div>
@@ -255,7 +296,7 @@ const App: React.FC = () => {
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                 <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
                   <RefreshCcw className="w-5 h-5 text-indigo-600" />
-                  Order Health
+                  <ProductCompositeChart orders={productInfoChart} />
                 </h3>
               </div>
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
@@ -273,7 +314,7 @@ const App: React.FC = () => {
             </div>
           </>
         ) : (
-          <div className="bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border border-slate-800">
+          <div className="bg-slate-900 rounded-3xl overflow-y-auto shadow-2xl border border-slate-800">
             <div className="p-6 bg-slate-800 border-b border-slate-700 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex gap-1.5">
@@ -336,9 +377,6 @@ const App: React.FC = () => {
         )}
 
         {/* Footer info */}
-        <div className="mt-8 text-center text-slate-400 text-sm">
-          Built for Customer Analytics by Châu. Powered by Gemini Flash 3.
-        </div>
       </main>
     </div>
   );

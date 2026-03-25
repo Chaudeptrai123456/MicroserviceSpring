@@ -7,6 +7,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+
 @RestController()
 @RequestMapping("/api/staff")
 public class ManageWarehouse {
@@ -26,7 +28,7 @@ public class ManageWarehouse {
                 warehouseId,
                 req.productId(),
                 req.quantity(),
-                req.importPrice(),
+                BigDecimal.valueOf(req.importPrice()),
                 req.supplier(),
                 req.note()
         );

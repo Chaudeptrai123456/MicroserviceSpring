@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -35,56 +36,64 @@ public class SupplyChainService {
         this.inventoryService = inventoryService;
         this.inventoryLogRepository = inventoryLogRepository;
     }
+    @Transactional
     public void importStock(
             String warehouseId,
             String productId,
             Integer quantity,
-            Double importPrice,
+            BigDecimal importPrice,
             String supplier,
             String note
     ) {
-
-        if (quantity <= 0) {
-            throw new IllegalArgumentException("Quantity must be greater than 0");
-        }
-
         Warehouse warehouse = warehouseRepository.findById(warehouseId)
                 .orElseThrow(() -> new RuntimeException("Warehouse not found"));
-
-        Product product = productRepository.findById(productId)
+        Product product = productRepository.lockById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
-
-        /* 1 GHI LOG NHẬP KHO */
         StockImport stockImport = new StockImport();
         stockImport.setWarehouse(warehouse);
         stockImport.setProduct(product);
         stockImport.setQuantity(quantity);
-        stockImport.setImportPrice(importPrice);
+        stockImport.setImportPrice(importPrice.doubleValue());
         stockImport.setSupplier(supplier);
         stockImport.setNote(note);
-        stockImportRepository.save(stockImport);
-        inventoryService.importStock(
-                productId,
-                quantity,
-                importPrice,
-                String.valueOf(InventoryType.IMPORT),
-                note,
-                "IMPORT_" + productId +"_TO_"+warehouseId      // refId (idempotent)
-        );
 
-        /* 2️ UPDATE TỒN KHO */
+        stockImportRepository.save(stockImport);
+
         WarehouseStock stock = warehouseStockRepository
-                .findByWarehouseAndProduct(warehouse, product)
+                .findByWarehouseAndProductForUpdate(warehouse.getId(), product.getId())
                 .orElseGet(() -> {
                     WarehouseStock ws = new WarehouseStock();
                     ws.setWarehouse(warehouse);
                     ws.setProduct(product);
-                    ws.setQuantity(quantity);
+                    ws.setQuantity(0);
                     return ws;
                 });
 
-        stock.setQuantity(stock.getQuantity() + quantity);
+        int oldStock = stock.getQuantity();
+        int newStock = oldStock + quantity;
+
+        stock.setQuantity(newStock);
         warehouseStockRepository.save(stock);
+
+        BigDecimal oldAvgCost = product.getAvgCost() == null
+                ? BigDecimal.ZERO
+                : product.getAvgCost();
+
+        BigDecimal totalCost = oldAvgCost.multiply(BigDecimal.valueOf(oldStock))
+                        .add(importPrice.multiply(BigDecimal.valueOf(quantity)));
+
+        BigDecimal newAvgCost =totalCost.divide(BigDecimal.valueOf(newStock), 2, java.math.RoundingMode.HALF_UP);
+
+        product.setAvgCost(newAvgCost);
+
+        inventoryService.importStock(
+                productId,
+                quantity,
+                importPrice.doubleValue(),
+                supplier,
+                note,
+                "IMPORT_" + stockImport.getId()
+        );
     }
     public Map<String, Integer> stockByWarehouse(String productId) {
 

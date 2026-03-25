@@ -1,5 +1,6 @@
 package com.example.Messenger.Controller.Owner;
 
+import com.example.Messenger.Record.Request.getAllInfoChartRequest;
 import com.example.Messenger.Record.Response.UserResponse;
 import com.example.Messenger.Record.Request.WarehouseRequest;
 import com.example.Messenger.Record.Request.assignManagerToWarehouseRequest;
@@ -8,6 +9,7 @@ import com.example.Messenger.Repository.UserRepository;
 import com.example.Messenger.Service.Implement.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.repository.config.RepositoryNameSpaceHandler;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.example.Messenger.Entity.Warehouse;
@@ -77,6 +79,9 @@ public class WarehouseController {
     public ResponseEntity<?> getAllProductInAllWarehouse() {
         return ResponseEntity.ok(this.warehouseEconomicService.getAllProductInAllWarehouse());
     }
-
+    @PostMapping("/chart/info")
+    public ResponseEntity<?> getAllInfoChart(@RequestBody getAllInfoChartRequest req) {
+        return ResponseEntity.ok(this.productServiceImp.getInfoChartOwner(req.getFromDate(),req.getToDate()));
+    }
 }
 

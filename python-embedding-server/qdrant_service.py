@@ -92,7 +92,6 @@ class Order(BaseModel):
     totalAmount: float
     items: List[OrderItem]
 
-
 # ========= Init collections =========
 def init_collections():
     configs = {
@@ -109,11 +108,11 @@ def init_collections():
         else:
             # Nếu collection đã tồn tại nhưng sai dimension thì recreate
             info = client.get_collection(name)
-            if info.config.params.vectors.size != size:
-                client.recreate_collection(
-                    collection_name=name,
-                    vectors_config=VectorParams(size=size, distance=Distance.COSINE),
-                )
+            # if info.config.params.vectors.size != size:
+            #     client.recreate_collection(
+            #         collection_name=name,
+            #         vectors_config=VectorParams(size=size, distance=Distance.COSINE),
+            #     )
 
 # ========= Embedding helpers =========
 
@@ -136,7 +135,6 @@ def reduce_vector_dim_mean(vector: np.ndarray, target_dim: int) -> np.ndarray:
     ], dtype=np.float32)
 
     return reduced
-
 
 def get_embedding(
     text: str,
@@ -482,18 +480,22 @@ def get_all_product_vectors_from_qdrant(limit_per_page: int = 100) -> List[List[
             break
     return all_vectors
 
-
 def find_similar_products(query_text: str, limit: int = 5, filters: Optional[Filter] = None):
     query_vector = get_embedding(query_text)
-    results = client.search(
-        collection_name=QDRANT_COLLECTION_PRODUCTS,
-        query_vector=query_vector,
-        limit=limit,
-        with_payload=True,
-        filter=filters,
-    )
-    return results
 
+    search_params = {
+        "collection_name": QDRANT_COLLECTION_PRODUCTS,
+        "query_vector": query_vector,
+        "limit": limit,
+        "with_payload": True
+    }
+
+    if filters:
+        search_params["filter"] = filters
+
+    results = client.search(**search_params)
+
+    return results
  
 def find_similar_orders(query_text: str, limit: int = 5, filters: Optional[Filter] = None):
     query_vector = get_embedding(query_text)

@@ -69,4 +69,14 @@ public interface WarehouseStockRepository extends JpaRepository<WarehouseStock,S
         WHERE ws.product.id = :productId
     """)
     int sumQuantityByProductId(@Param("productId") String productId);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+SELECT ws FROM WarehouseStock ws
+WHERE ws.warehouse.id = :warehouseId
+AND ws.product.id = :productId
+""")
+    Optional<WarehouseStock> findByWarehouseAndProductForUpdate(
+            String warehouseId,
+            String productId
+    );
 }

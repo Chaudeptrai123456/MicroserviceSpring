@@ -23,17 +23,13 @@ export default function LoginPage() {
   const handleLogin = async () => {
     setLoading(true);
     setError("");
-
     try {
-      // 🔹 Gọi backend login (cookie sẽ được set)
       await backendApi.get(API_PATHS.AUTH.LOGIN, {
         withCredentials: true,
       });
-
-      // 🔹 Lấy lại user từ cookie
+      console.log("Attempting login...");
       await refetchUser();
 
-      // 🔹 Redirect về home
       router.replace("/");
     } catch (err) {
       console.error(err);

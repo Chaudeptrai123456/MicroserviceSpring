@@ -60,7 +60,6 @@ export const apiClient = (target: ApiTarget = "BACKEND") => {
   return createAxios(baseURL);
 };
 /**
- * ======================= CÁCH SỬ DỤNG API CLIENT =======================
  *
  * 📌 File này dùng để tạo axios client cho NHIỀU server khác nhau
  *    (Backend thường & Gateway), dùng chung interceptor (token, 401, v.v.)

@@ -2,6 +2,7 @@ package com.example.Messenger.Entity;
 
 import jakarta.persistence.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 @Entity
@@ -10,7 +11,7 @@ public class Discount {
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
-    private Double percentage;
+    private BigDecimal percentage;
     private LocalDate startDate;
     private LocalDate endDate;
 
@@ -20,7 +21,7 @@ public class Discount {
 
     public Discount() {}
 
-    public Discount(Double percentage, LocalDate startDate, LocalDate endDate) {
+    public Discount(BigDecimal percentage, LocalDate startDate, LocalDate endDate) {
         this.percentage = percentage;
         this.startDate = startDate;
         this.endDate = endDate;
@@ -31,11 +32,11 @@ public class Discount {
         return id;
     }
 
-    public Double getPercentage() {
+    public BigDecimal getPercentage() {
         return percentage;
     }
 
-    public void setPercentage(Double percentage) {
+    public void setPercentage(BigDecimal percentage) {
         this.percentage = percentage;
     }
 
@@ -61,5 +62,15 @@ public class Discount {
 
     public void setProduct(Product product) {
         this.product = product;
+    }
+
+    public boolean isActive() {
+
+        LocalDate today = LocalDate.now();
+
+        boolean afterStart = startDate == null || !today.isBefore(startDate);
+        boolean beforeEnd  = endDate == null || !today.isAfter(endDate);
+
+        return afterStart && beforeEnd;
     }
 }

@@ -9,8 +9,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 @Entity
@@ -29,56 +31,65 @@ import java.util.Set;
 public class Product {
     @Id
     private String id;
+
     private LocalDate createdAt;
+
     private LocalDate updateAt;
+
     private String name;
+
     @Column(length = 2000)
     private String description;
+
     private Integer quantity;
-    private Double price;
-    @Column(length = 5000)
-    private String embedding;
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "warehouse_id")
-    private Warehouse warehouse;
+
+    @Column(precision = 19, scale = 2)
+    private BigDecimal price;
+
+    @Column(precision = 19, scale = 2)
+    private BigDecimal avgCost;
+
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<Image> images = new HashSet<>();
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id")
     @JsonIgnoreProperties("products")
     private Category category;
+
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<Feature> features = new HashSet<>();
+
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<Discount> discounts = new HashSet<>();
-
     public  Product(){}
-    public Product(String id, LocalDate createdAt, String name, String description, Double price, String embedding) {
+    public Product(String id, LocalDate createdAt, String name, String description, BigDecimal price) {
         this.id = id;
         this.createdAt = createdAt;
         this.name = name;
         this.description = description;
         this.price = price;
-        this.embedding = embedding;
     }
-    public Double getCurrentDiscountPercentage() {
+    public BigDecimal getCurrentDiscountPercentage() {
+
         LocalDate today = LocalDate.now();
 
         return discounts.stream()
                 .filter(d -> d.getStartDate() != null && d.getEndDate() != null)
                 .filter(d -> !today.isBefore(d.getStartDate()) && !today.isAfter(d.getEndDate()))
-                .map(Discount::getPercentage)
-                .max(Double::compareTo) // nếu có nhiều giảm giá trùng thời gian → lấy lớn nhất
-                .orElse(0.0);
+                .map(d -> d.getPercentage())
+                .max(BigDecimal::compareTo)   // nếu có nhiều discount → lấy lớn nhất
+                .orElse(BigDecimal.ZERO);
     }
 
-    // ✅ Hàm tính giá hiện tại sau khi áp giảm giá
-    public Double getCurrentPrice() {
-        Double discount = getCurrentDiscountPercentage();
-        return price * (1 - discount);
-    }
+    public BigDecimal getCurrentPrice() {
 
-    // ✅ Tiện ích thêm / xoá discount
+        BigDecimal basePrice = price == null ? BigDecimal.ZERO : price;
+
+        BigDecimal discount = Optional.ofNullable(getCurrentDiscountPercentage())
+                .orElse(BigDecimal.ZERO);
+        return basePrice.multiply(BigDecimal.ONE.subtract(discount));
+    }
     public void addDiscount(Discount discount) {
         discounts.add(discount);
         discount.setProduct(this);
@@ -123,21 +134,7 @@ public class Product {
         this.description = description;
     }
 
-    public Double getPrice() {
-        return price;
-    }
 
-    public void setPrice(Double price) {
-        this.price = price;
-    }
-
-    public String getEmbedding() {
-        return embedding;
-    }
-
-    public void setEmbedding(String embedding) {
-        this.embedding = embedding;
-    }
 
     public Set<Image> getImages() {
         return images;
@@ -185,5 +182,21 @@ public class Product {
 
     public void setUpdateAt(LocalDate updateAt) {
         this.updateAt = updateAt;
+    }
+
+    public BigDecimal getPrice() {
+        return price;
+    }
+
+    public void setPrice(BigDecimal price) {
+        this.price = price;
+    }
+
+    public BigDecimal getAvgCost() {
+        return avgCost;
+    }
+
+    public void setAvgCost(BigDecimal avgCost) {
+        this.avgCost = avgCost;
     }
 }

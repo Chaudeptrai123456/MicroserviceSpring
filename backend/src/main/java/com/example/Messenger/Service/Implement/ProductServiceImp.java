@@ -9,6 +9,7 @@ import com.example.Messenger.Record.Request.DiscountRequest;
 import com.example.Messenger.Record.Request.ImageRequest;
 import com.example.Messenger.Record.Request.ProductRequest;
 import com.example.Messenger.Record.Type.InventoryType;
+import com.example.Messenger.Record.View.ProductRevenueTimeView;
 import com.example.Messenger.Repository.*;
 import com.example.Messenger.Service.ProductService;
 import com.example.Messenger.Service.RedisService;
@@ -23,7 +24,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.swing.plaf.basic.BasicInternalFrameTitlePane;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.*;
@@ -32,7 +35,7 @@ import java.util.stream.Collectors;
 @Service
 public class ProductServiceImp implements ProductService {
     private static final Duration PRODUCT_TTL = Duration.ofHours(1);
-    private static final Duration PRODUCT_PAGE_TTL = Duration.ofMinutes(5);
+    private static final Duration PRODUCT_PAGE_TTL = Duration.ofSeconds(100);
     private ProductIdUtil productIdUtil;
     private final StockImportRepository stockImportRepository;
     private final RedisService redisService;
@@ -60,51 +63,43 @@ public class ProductServiceImp implements ProductService {
     @Transactional
     @Override
     public Product createProduct(ProductRequest req) {
-        // 1️⃣ Category
         Category category = categoryRepository.findById(req.categoryId())
-            .orElseThrow(() -> new RuntimeException("Category not found"));
-
-        // 2️⃣ Product (KHÔNG set quantity)
+                .orElseThrow(() -> new RuntimeException("Category not found"));
         Product product = new Product();
         product.setId(generateId(req.name()));
         product.setName(req.name());
         product.setDescription(req.description());
-        product.setPrice(req.price());
+        product.setAvgCost( BigDecimal.valueOf(req.avgCost()));
+        product.setPrice( BigDecimal.valueOf(req.price()));
         product.setCreatedAt(LocalDate.now());
         product.setCategory(category);
-        product.setQuantity(req.quantity()); // 🔒 inventory controlled
-        // 3️⃣ Features (null-safe, đúng dữ liệu)
+        product.setQuantity(req.quantity());
         Set<Feature> features = Optional.ofNullable(req.features())
-            .orElse(Collections.emptyList())
-            .stream()
-            .map(value -> {
-                Feature f = new Feature();
-                f.setName("feature");
-                f.setValue(value);
-                f.setProduct(product);
-                return f;
-            })
-            .collect(Collectors.toSet());
-        product.setCreatedAt(LocalDate.now());
+                .orElse(Collections.emptyList())
+                .stream()
+                .map(f -> {
+                    Feature feature = new Feature();
+                    feature.setName(f.name());
+                    feature.setValue(f.value());
+                    feature.setProduct(product);
+                    return feature;
+                })
+                .collect(Collectors.toSet());
         product.setFeatures(features);
-
-        // 4️⃣ Save product trước
+        System.out.println("test " + product.getImages());
         Product saved = productRepository.save(product);
-
-        // 5️⃣ INITIAL IMPORT (nếu có quantity)
         if (req.quantity() > 0) {
             inventoryService.importStock(
-                saved.getId(),
-                req.quantity(),
-                req.price(),                 // hoặc giá nhập riêng
-                "INITIAL",
-                "Initial import",
-                "INIT_" + saved.getId()      // refId (idempotent)
-        );
+                    saved.getId(),
+                    req.quantity(),
+                    req.price(),
+                    "INITIAL",
+                    "Initial import",
+                    "INIT_" + saved.getId()
+            );
+        }
+        return saved;
     }
-
-    return saved;
-}
 
     private String generateId(String name) {
         // Làm sạch tên: bỏ khoảng trắng, viết thường
@@ -126,7 +121,7 @@ public class ProductServiceImp implements ProductService {
         existing.setUpdateAt(LocalDate.now());
         existing.setName(newProduct.getName() == null ? existing.getName():newProduct.getName());
         existing.setDescription(newProduct.getDescription() == null ? existing.getDescription(): newProduct.getDescription());
-        existing.setPrice(newProduct.getPrice() == null ? existing.getPrice() : existing.getPrice()+ newProduct.getPrice());
+        existing.setPrice(newProduct.getPrice() == null ? existing.getPrice() : existing.getPrice().add(BigDecimal.valueOf(newProduct.getPrice())));
 //        existing.setEmbedding(newProduct.getEmbedding() == null ? existing.ge);
         existing.setQuantity(newProduct.getQuantity() == null ? existing.getQuantity(): existing.getQuantity()+ newProduct.getQuantity());
         existing.setUpdateAt(LocalDate.now());
@@ -142,8 +137,8 @@ public class ProductServiceImp implements ProductService {
         // reset images
         existing.getImages().clear();
         String cacheKey = "product:" + id;
-        redisService.delete(cacheKey);
         var result = productRepository.save(existing);
+        redisService.save(cacheKey,result,Duration.ofHours(1));
         if (newProduct.getQuantity() != 0) {
             inventoryService.importStock(
                     existing.getId(),
@@ -163,6 +158,7 @@ public class ProductServiceImp implements ProductService {
     public Page<Product> getAllProducts(int page, int size) {
         String cacheKey = "product:page:" + page + ":" + size;
         // Cache hit
+        // Cache hit
         PageWrapper cachedPage = redisService.get(cacheKey, PageWrapper.class);
         if (cachedPage != null) {
             return cachedPage.toPage();
@@ -181,7 +177,6 @@ public class ProductServiceImp implements ProductService {
         if (cached != null) {
             return cached;
         }
-
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Product not found"));
 
@@ -218,7 +213,7 @@ public class ProductServiceImp implements ProductService {
             throw new IllegalArgumentException("Phần trăm giảm giá phải nằm trong khoảng (0, 1]");
         }
         Discount discount = new Discount(
-                request.getPercentage(),
+                BigDecimal.valueOf(request.getPercentage()),
                 request.getStartDate(),
                 request.getEndDate()
         );
@@ -345,5 +340,9 @@ public class ProductServiceImp implements ProductService {
         Pageable pageable = PageRequest.of(0, limits);
         LocalDate today = LocalDate.now();
         return discountRepository.findTopDiscountProducts(today, pageable);
+    }
+
+    public List<ProductRevenueTimeView> getInfoChartOwner(LocalDate fromDate, LocalDate toDate) {
+        return this.productRepository.getProductRevenueByDay(fromDate,toDate);
     }
 }

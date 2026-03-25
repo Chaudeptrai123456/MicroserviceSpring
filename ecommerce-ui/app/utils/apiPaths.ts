@@ -1,14 +1,28 @@
+import { create } from "node_modules/axios/index.cjs";
+
 export const API_PATHS = {
   AUTH: {
     REGISTER: "/api/auth/register",
-    LOGIN: "/login",
+    LOGIN: "/oauth2/authorization/google",
     GET_PROFILE: "/api/user/info",
     LOGOUT: "/logout",
   },
+  CATEGORY: {
+    GET_ALL: "/api/categories",
+  },
+  PRODUCT: {
+    GET_ALL: "/api/products/get",
+    GET_ALL_NODE: "/api/service/products/get",
+    UPDATE: (productId: string) => `/api/products/${productId}`,
+    ADD_IMAGE: (productId: string) => `/api/products/images/${productId}`,
+  },
   WAREHOUSE: {
+    CHART_INFO: "/api/owner/chart/info",
     GET_ALL: "/api/owner/warehouse/get",
     ECOMMERCE: "/api/owner/dashboard/ecommerce",
-    GET_ALL_PRODUCT: "/api/owner/warehouse/product/get"
+    GET_ALL_PRODUCT: "/api/owner/warehouse/product/get",
+    CREATE_PRODUCT: "/api/products",
+    UPDATE_PRODUCT: (productId: string) => `/api/product/${productId}`,
   },
   USER: {
     GET_ALL_USERS: "/api/users",
@@ -16,6 +30,9 @@ export const API_PATHS = {
     CREATE_USER: "/api/user",
     UPDATE_USER: (userId: string) => `/api/users/${userId}`,
     DELETE_USER: (userId: string) => `/api/users/${userId}`,
+  },
+  SEARCH: {
+    PRODUCT: "/search/product/description",
   },
 
   TASK: {
