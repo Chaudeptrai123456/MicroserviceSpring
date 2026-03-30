@@ -20,25 +20,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleLogin = async () => {
+  const handleLogin = () => {
     setLoading(true);
     setError("");
     try {
-      await backendApi.get(API_PATHS.AUTH.LOGIN, {
-        withCredentials: true,
-      });
-      console.log("Attempting login...");
-      await refetchUser();
-
-      router.replace("/");
+      window.location.href = "http://localhost/oauth2/authorization/google";
     } catch (err) {
       console.error(err);
       setError("Đăng nhập thất bại");
-    } finally {
       setLoading(false);
     }
   };
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-100">
       <div className="w-full max-w-sm bg-white p-6 rounded shadow space-y-4">

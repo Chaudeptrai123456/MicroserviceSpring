@@ -73,7 +73,7 @@ const getProductById = async (req, res) => {
     res.status(500).json({ message: "Lỗi khi lấy sản phẩm", error: error.message });
   }
 };
-// 🧠 Lấy danh sách sản phẩm (có phân trang)
+//  Lấy danh sách sản phẩm (có phân trang)
 const getAllProducts = async (req, res) => {
   try {
     console.log("✅ test auth_user middleware");

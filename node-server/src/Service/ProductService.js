@@ -112,27 +112,22 @@ async getAllProducts(page, size) {
       p.quantity,
       p.created_at,
       p.update_at,
-      -- 🧩 Lấy category
       json_build_object('name', c.name, 'description', c.description) AS category,
-      -- 🧩 Tập hợp features
       COALESCE(
         json_agg(DISTINCT jsonb_build_object('name', f.name, 'value', f.value))
         FILTER (WHERE f.id IS NOT NULL),
         '[]'
       ) AS features,
-      -- 🧩 Tập hợp images
       COALESCE(
         json_agg(DISTINCT jsonb_build_object('filename', i.filename, 'contentType', i.content_type, 'url', i.url))
         FILTER (WHERE i.id IS NOT NULL),
         '[]'
       ) AS images,
-      -- 🧩 Tập hợp discounts (vẫn giữ nguyên để hiển thị)
       COALESCE(
         json_agg(DISTINCT jsonb_build_object('percentage', d.percentage, 'startDate', d.start_date, 'endDate', d.end_date))
         FILTER (WHERE d.id IS NOT NULL),
         '[]'
       ) AS discounts,
-      -- 🧠 Giá trị giảm tổng (chênh lệch)
       COALESCE(SUM(
         CASE 
           WHEN CURRENT_DATE BETWEEN d.start_date AND d.end_date
@@ -140,7 +135,6 @@ async getAllProducts(page, size) {
           ELSE 0
         END
       ), 0) AS total_discount_value,
-      -- 🧠 Giá sau giảm
       (p.price - COALESCE(SUM(
         CASE 
           WHEN CURRENT_DATE BETWEEN d.start_date AND d.end_date

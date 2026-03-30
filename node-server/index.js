@@ -1,4 +1,3 @@
-require("./src/Config/tracing"); 
 const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
@@ -27,11 +26,11 @@ app.get('/metrics', async (req, res) => {
 });
 
 /* ================= MIDDLEWARE ================= */
-app.use(cors({
-  origin: "*",
-  methods: "GET,POST,PUT,DELETE",
-  credentials: true
-}));
+// app.use(cors({
+//   origin: "*",
+//   methods: "GET,POST,PUT,DELETE",
+//   credentials: true
+// }));
 
 app.use(morgan("dev"));
 app.use(express.json());

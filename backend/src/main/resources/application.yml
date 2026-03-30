@@ -129,7 +129,7 @@ management:
 spring.config.activate.on-profile: docker
 server:
   port: 9999
-  use-forward-headers: framework
+  forward-headers-strategy: framework
 app:
   auth:
     host: backend #
@@ -137,7 +137,8 @@ app:
 google:
   client-id: 325019990890-qe5jj732uqji378c1ssv54ghh09dtoab.apps.googleusercontent.com
   client-secret: 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
-  redirect-uri: http://backend:9999/login/oauth2/code/google
+  redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+  # redirect-uri: http://backend:9999/login/oauth2/code/google
   # redirect-uri: http://localhost:9999/login/oauth2/code/google
   scopes:
     - https://www.googleapis.com/auth/gmail.send
