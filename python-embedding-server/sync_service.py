@@ -1,5 +1,6 @@
 import os
 import psycopg2
+import numpy as np
 from psycopg2.extras import RealDictCursor
 from qdrant_service import (
     upsert_products_batch,
@@ -11,6 +12,77 @@ from qdrant_service import (
 )
 from typing import List, Dict
 # ========= Load từ Postgres =========
+# def load_products_from_postgres() -> List[Dict]:
+#     conn = psycopg2.connect(
+#         dbname=os.getenv("POSTGRES_DB", "ecommerce"),
+#         user=os.getenv("POSTGRES_USER", "master"),
+#         password=os.getenv("POSTGRES_PASSWORD", "123"),
+#         host=os.getenv("POSTGRES_HOST", "localhost"),
+#         port=int(os.getenv("POSTGRES_PORT", 5432))
+#     )
+#     print("connect successfully")
+#     cur = conn.cursor()
+
+#     query = """ 
+#         SELECT 
+#             p.id,
+#             p.name AS product_name,
+#             p.price,
+#             p.quantity,
+#             f.name AS feature_name,
+#             f.value AS feature_value,
+#             c.name AS category_name,
+#             c.description AS category_description,
+#             i.url AS image_url,
+#             d.percentage AS discount_percentage,
+#             d.start_date,
+#             d.end_date
+#         FROM product p
+#         LEFT JOIN category c ON c.id = p.category_id
+#         LEFT JOIN feature f ON f.product_id = p.id
+#         LEFT JOIN image i ON i.product_id = p.id
+#         LEFT JOIN discount d ON d.product_id = p.id
+#         WHERE p.update_at >= NOW() - INTERVAL '24 hours'
+#         ORDER BY p.update_at DESC;
+#     """
+#     cur.execute(query)
+#     rows = cur.fetchall()
+#     if not rows:
+#         print("Không có sản phẩm nào được cập nhật trong 5 giờ qua.")
+#         cur.close()
+#         conn.close()
+#         return []
+#     products = {}
+#     for row in rows:
+#         pid, pname, price, qty, fname, fvalue, cname, cdesc, url,d_start_date,d_end_date,d_percentage = row
+#         if pid not in products:
+#             products[pid] = {
+#                 "id": pid,
+#                 "name": pname,
+#                 "price": float(price),
+#                 "quantity": qty,
+#                 "image": [],   # thêm url vào đây
+#                 "category": {
+#                     "name": cname,
+#                     "description": cdesc
+#                 },
+#                 "features": [],
+#             }
+#             if d_percentage is not None:
+#                 products[pid]["discount"] = {
+#                     "percentage": d_percentage,
+#                     "start_date": d_start_date,
+#                     "end_date": d_end_date
+#                 }
+#         if fname:
+#             products[pid]["features"].append({
+#                 "name": fname,
+#                 "value": fvalue
+#             })
+#     cur.close()
+#     conn.close()
+#     return list(products.values())
+
 def load_products_from_postgres() -> List[Dict]:
     conn = psycopg2.connect(
         dbname=os.getenv("POSTGRES_DB", "ecommerce"),
@@ -21,41 +93,44 @@ def load_products_from_postgres() -> List[Dict]:
     )
     print("connect successfully")
     cur = conn.cursor()
-
     query = """ 
         SELECT 
             p.id,
-            p.name,
+            p.name AS product_name,
             p.price,
             p.quantity,
-            f.name,
-            f.value,
-            c.name,
-            c.description,
-            i.url,
-            d.percentage,
+            f.name AS feature_name,
+            f.value AS feature_value,
+            c.name AS category_name,
+            c.description AS category_description,
+            i.url AS image_url,
+            d.percentage AS discount_percentage,
             d.start_date,
             d.end_date
         FROM product p
-        LEFT JOIN feature f ON f.product_id = p.id
         LEFT JOIN category c ON c.id = p.category_id
+        LEFT JOIN feature f ON f.product_id = p.id
         LEFT JOIN image i ON i.product_id = p.id
         LEFT JOIN discount d ON d.product_id = p.id
-        ORDER BY p.id;
+        ORDER BY p.update_at DESC;
     """
     cur.execute(query)
     rows = cur.fetchall()
-
+    if not rows:
+        print("Không có sản phẩm nào được cập nhật trong 24 giờ qua.")
+        cur.close()
+        conn.close()
+        return []
     products = {}
     for row in rows:
-        pid, pname, price, qty, fname, fvalue, cname, cdesc, url,d_start_date,d_end_date,d_percentage = row
+        pid, pname, price, qty, fname, fvalue, cname, cdesc, url, d_percentage, d_start_date, d_end_date = row
         if pid not in products:
             products[pid] = {
                 "id": pid,
                 "name": pname,
                 "price": float(price),
                 "quantity": qty,
-                "image": url,   # thêm url vào đây
+                "images": [],   # ✅ đổi thành list
                 "category": {
                     "name": cname,
                     "description": cdesc
@@ -68,11 +143,18 @@ def load_products_from_postgres() -> List[Dict]:
                     "start_date": d_start_date,
                     "end_date": d_end_date
                 }
+
+        # ✅ Thêm hình vào list, tránh thêm None
+        if url and url not in products[pid]["images"]:
+            products[pid]["images"].append(url)
+
+        # ✅ Thêm feature
         if fname:
             products[pid]["features"].append({
                 "name": fname,
                 "value": fvalue
             })
+
     cur.close()
     conn.close()
     return list(products.values())
@@ -105,6 +187,11 @@ def load_orders_from_postgres():
     """
     cur.execute(query)
     rows = cur.fetchall()
+    if not rows:
+        print("Không có sản phẩm nào được cập nhật trong 5 giờ qua.")
+        cur.close()
+        conn.close()
+        return []
     orders = {}
     for r in rows:
         oid = r[0]
@@ -149,3 +236,4 @@ def sync_orders_to_qdrant():
     upsert_orders_bath(orders)
     print(f"✅ Đã sync {len(orders)} orders vào Qdrant collection '{QDRANT_COLLECTION_ORDERS}'")
 
+        # WHERE p.update_at >= NOW() - INTERVAL '24 hours'

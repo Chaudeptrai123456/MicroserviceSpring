@@ -1,4 +1,5 @@
 package com.example.gateaway;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -10,21 +11,32 @@ import org.springframework.security.oauth2.client.web.server.WebSessionServerOAu
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+
+import java.util.List;
 
 @Configuration
 @EnableWebFluxSecurity
 public class SecurityConfig {
-
+    @Value("${url}")
+    private String jwks_url;
     @Bean
     public SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
-        http
-                .csrf(csrf -> csrf.disable())
+        http.csrf(ServerHttpSecurity.CsrfSpec::disable)   
+                .cors(cors -> cors.configurationSource(request -> {
+                    CorsConfiguration config = new CorsConfiguration();
+                    config.setAllowedOrigins(List.of("http://localhost:3000"));
+                    config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+                    config.setAllowedHeaders(List.of("*"));
+                    config.setAllowCredentials(true);
+                    return config;
+                }))
                 .authorizeExchange(ex -> ex
-                        .pathMatchers("/login**", "/oauth2/authorization/**", "/login/oauth2/code/**").permitAll()
+                        .pathMatchers("/login**", "/oauth2/authorization/**", "/login/oauth2/code/**","/api/products/get","/api/service/products/get","/api/categories/get").permitAll()
                         .pathMatchers("/api/**").authenticated()
                         .anyExchange().permitAll()
                 )
-                .oauth2Login(Customizer.withDefaults())
+//                 .oauth2Login(Customizer.withDefaults())
                 .oauth2ResourceServer(oauth2 ->
                         oauth2.jwt(jwt ->
                                 jwt.jwtDecoder(jwtDecoder())
@@ -32,9 +44,11 @@ public class SecurityConfig {
                 );
         return http.build();
     }
-
     @Bean
     public ReactiveJwtDecoder jwtDecoder() {
-        return NimbusReactiveJwtDecoder.withJwkSetUri("http://localhost:9999/oauth2/jwks").build();
+        return NimbusReactiveJwtDecoder
+                .withJwkSetUri(jwks_url)
+                .build();
     }
+
 }

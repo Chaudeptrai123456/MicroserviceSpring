@@ -1,6 +1,7 @@
 import os
 from typing import List, Dict, Optional
 import numpy as np
+import uuid
 import requests
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
@@ -12,6 +13,9 @@ from qdrant_client.models import (
     FieldCondition,
     MatchValue,
 )
+from datetime import datetime
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
 from qdrant_client import models
 import time
 from typing import Dict
@@ -88,7 +92,6 @@ class Order(BaseModel):
     totalAmount: float
     items: List[OrderItem]
 
-
 # ========= Init collections =========
 def init_collections():
     configs = {
@@ -105,27 +108,33 @@ def init_collections():
         else:
             # Nếu collection đã tồn tại nhưng sai dimension thì recreate
             info = client.get_collection(name)
-            if info.config.params.vectors.size != size:
-                client.recreate_collection(
-                    collection_name=name,
-                    vectors_config=VectorParams(size=size, distance=Distance.COSINE),
-                )
+            # if info.config.params.vectors.size != size:
+            #     client.recreate_collection(
+            #         collection_name=name,
+            #         vectors_config=VectorParams(size=size, distance=Distance.COSINE),
+            #     )
 
 # ========= Embedding helpers =========
+
 def reduce_vector_dim_mean(vector: np.ndarray, target_dim: int) -> np.ndarray:
-    """
-    Giảm chiều bằng trung bình khối, dùng khi chỉ có 1 vector.
-    """
     original_dim = len(vector)
-    if original_dim <= target_dim:
-        return vector
-    block_size = original_dim // target_dim
-    reduced = []
-    for i in range(target_dim):
-        start = i * block_size
-        end = start + block_size
-        reduced.append(float(np.mean(vector[start:end])))
-    return np.array(reduced, dtype=np.float32)
+
+    if original_dim == target_dim:
+        return vector.astype(np.float32)
+
+    # Nếu nhỏ hơn → PAD
+    if original_dim < target_dim:
+        pad = np.zeros(target_dim - original_dim, dtype=np.float32)
+        return np.concatenate([vector.astype(np.float32), pad])
+
+    # Nếu lớn hơn → RESAMPLE
+    indices = np.linspace(0, original_dim, target_dim + 1, dtype=int)
+    reduced = np.array([
+        vector[indices[i]:indices[i+1]].mean()
+        for i in range(target_dim)
+    ], dtype=np.float32)
+
+    return reduced
 
 def get_embedding(
     text: str,
@@ -176,30 +185,30 @@ def get_embedding(
     # ---- Nếu fail 3 lần liên tục → lỗi thật ----
     raise RuntimeError("❌ LocalAI embedding failed after 3 retries")
 
-# def get_embedding(text: str, model: Optional[str] = None, target_dim: Optional[int] = None) -> List[float]:
-#     # Gọi LocalAI để lấy embedding. Tự động giảm chiều nếu dimension lớn hơn VECTOR_SIZE.
-#     model = model or EMBEDDING_MODEL
-#     target_dim = target_dim or VECTOR_SIZE
+def get_embedding(text: str, model: Optional[str] = None, target_dim: Optional[int] = None) -> List[float]:
+    # Gọi LocalAI để lấy embedding. Tự động giảm chiều nếu dimension lớn hơn VECTOR_SIZE.
+    model = model or EMBEDDING_MODEL
+    target_dim = target_dim or VECTOR_SIZE
 
-#     payload = {"input": text, "model": model}
-#     print(LOCALAI_URL)
-#     response = requests.post(LOCALAI_URL, json=payload)
-#     response.raise_for_status()
+    payload = {"input": text, "model": model}
+    print(LOCALAI_URL)
+    response = requests.post(LOCALAI_URL, json=payload)
+    response.raise_for_status()
 
-#     data = response.json()
-#     embedding = np.array(data["data"][0]["embedding"], dtype=np.float32)
-#     original_dim = len(embedding)
+    data = response.json()
+    embedding = np.array(data["data"][0]["embedding"], dtype=np.float32)
+    original_dim = len(embedding)
 
-#     if original_dim != target_dim:
-#         # Nếu model trả về dimension khác VECTOR_SIZE, giảm (hoặc giữ nguyên nếu nhỏ hơn)
-#         if original_dim > target_dim:
-#             embedding = reduce_vector_dim_mean(embedding, target_dim)
-#         else:
-#             # Nếu nhỏ hơn, pad zeros để khớp kích thước
-#             pad = np.zeros(target_dim - original_dim, dtype=np.float32)
-#             embedding = np.concatenate([embedding, pad])
+    if original_dim != target_dim:
+        # Nếu model trả về dimension khác VECTOR_SIZE, giảm (hoặc giữ nguyên nếu nhỏ hơn)
+        if original_dim > target_dim:
+            embedding = reduce_vector_dim_mean(embedding, target_dim)
+        else:
+            # Nếu nhỏ hơn, pad zeros để khớp kích thước
+            pad = np.zeros(target_dim - original_dim, dtype=np.float32)
+            embedding = np.concatenate([embedding, pad])
 
-#     return embedding.tolist()
+    return embedding.tolist()
 
 
 # ========= Stringify =========
@@ -322,15 +331,51 @@ def save_order(order: Dict):
         ],
     )
 
+import numpy as np
 
+def build_product_embedding(product: dict) -> List[float]:
+    """
+    - name: cao nhất
+    - discount + price: nhì
+    - description + features: thấp
+    """
+    vectors = []
+    weights = []
+
+    # name trọng số cao
+    if product.get("name"):
+        vectors.append(get_embedding(product["name"]))
+        weights.append(4.0)
+
+    # discount + price trọng số nhì
+    if product.get("discount"):
+        vectors.append(get_embedding(str(product["discount"])))
+        weights.append(2.0)
+    if product.get("price"):
+        vectors.append(get_embedding(str(product["price"])))
+        weights.append(2.0)
+    # description trọng số thấp
+    if product.get("description"):
+        vectors.append(get_embedding(product["description"]))
+        weights.append(1.0)
+
+    # features trọng số thấp
+    if product.get("features"):
+        for f in product["features"]:
+            vectors.append(get_embedding(f["name"] + " " + f["value"]))
+            weights.append(0.8)
+
+    # Weighted average
+    weighted_vector = np.average(vectors, axis=0, weights=weights)
+    return weighted_vector.tolist()
 def upsert_products_batch(products: List[Dict]):
     """
     Upsert theo batch để nhanh hơn khi sync nhiều sản phẩm.
     """
     points = []
     for p in products:
-        text = stringify_product(p)
-        vector = get_embedding(text)
+        # text = stringify_product(p)
+        vector = build_product_embedding(p)
         time.sleep(0.2)  # nghỉ 200ms để LocalAI thở
         points.append(PointStruct(id=_stable_id(p.get("id")), vector=vector, payload=p))
     if points:
@@ -369,10 +414,7 @@ def get_order_by_id(order_id: str) -> Dict:
     return result[0].payload if result else {}
 
 
-def get_all_products_from_qdrant(limit_per_page: int = 100) -> List[Dict]:
-    """
-    Lấy toàn bộ products (payload + vector_length) để kiểm tra.
-    """
+def get_all_products_from_qdrant(limit_per_page: int = 1) -> List[Dict]:
     all_products = []
     scroll_offset = None
     while True:
@@ -381,21 +423,21 @@ def get_all_products_from_qdrant(limit_per_page: int = 100) -> List[Dict]:
             limit=limit_per_page,
             offset=scroll_offset,
             with_payload=True,
-            with_vectors=True,
+            with_vectors=True,  
         )
         if not points:
             break
         for point in points:
-            all_products.append(
-                {
-                    "qdrant_id": point.id,
-                    "product": point.payload,
-                    "vector_length": point.vector
-                }
-            )
+            all_products.append({
+                "qdrant_id": point.id,
+                "product": point.payload,
+                "vector": point.vector,
+            })
+
         if scroll_offset is None:
             break
     return all_products
+
 def get_all_orders_from_qdrant(limit_per_page: int = 100) -> List[Dict]:
     all_order= []
     scroll_offset = None
@@ -427,8 +469,8 @@ def get_all_product_vectors_from_qdrant(limit_per_page: int = 100) -> List[List[
             collection_name=QDRANT_COLLECTION_PRODUCTS,
             limit=limit_per_page,
             offset=scroll_offset,
-            with_vectors=True,
-            with_payload=False,
+            with_vectors=False,
+            with_payload=True,
         )
         if not points:
             break
@@ -438,18 +480,22 @@ def get_all_product_vectors_from_qdrant(limit_per_page: int = 100) -> List[List[
             break
     return all_vectors
 
-
 def find_similar_products(query_text: str, limit: int = 5, filters: Optional[Filter] = None):
     query_vector = get_embedding(query_text)
-    results = client.search(
-        collection_name=QDRANT_COLLECTION_PRODUCTS,
-        query_vector=query_vector,
-        limit=limit,
-        with_payload=True,
-        filter=filters,
-    )
-    return results
 
+    search_params = {
+        "collection_name": QDRANT_COLLECTION_PRODUCTS,
+        "query_vector": query_vector,
+        "limit": limit,
+        "with_payload": True
+    }
+
+    if filters:
+        search_params["filter"] = filters
+
+    results = client.search(**search_params)
+
+    return results
  
 def find_similar_orders(query_text: str, limit: int = 5, filters: Optional[Filter] = None):
     query_vector = get_embedding(query_text)
@@ -475,11 +521,8 @@ def delete_all_products():
     """
     Xóa toàn bộ products trong collection.
     """
-    client.delete(
-        collection_name=QDRANT_COLLECTION_PRODUCTS,
-        points_selector={"filter": {}}
-    )
-    print(f"🗑️ Đã xóa toàn bộ products trong collection '{QDRANT_COLLECTION_PRODUCTS}'")
+    client.delete( collection_name=QDRANT_COLLECTION_PRODUCTS, points_selector={"all": True} )
+    # print(f"🗑️ Đã xóa toàn bộ products trong collection '{QDRANT_COLLECTION_PRODUCTS}'")
 
 
 def delete_all_orders():
@@ -532,7 +575,7 @@ def recommend_products_for_user(email: str, limit: int = 10):
             ]
         ),
         with_payload=True,
-        with_vectors=False,
+        with_vectors=True,
         limit=100
     )
     # ---- FIX 1: Lấy productId đúng key ----
@@ -607,15 +650,15 @@ def recommend_products_for_user(email: str, limit: int = 10):
         if len(products) >= limit:
             break
 
-    return {"products": products}
+    return products
 def search_with_description(description: str):
     # vectorize the description 
     vector_description = get_embedding(description)
     products = client.query_points(
         collection_name=QDRANT_COLLECTION_PRODUCTS,   #  
         query=vector_description,
-        limit=3,
-        with_vectors=True,
+        limit=10,
+        with_vectors=False,
     )
     result = []
     for product in products.points:
@@ -652,7 +695,7 @@ def recommend_with_filters(email: str, category: str | None = None, min_price: f
             limit=100,
             offset=scroll_offset,
             with_payload=True,
-            with_vectors=True,
+            with_vectors=False,
         )
         if not points:
             break

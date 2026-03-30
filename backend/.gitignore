@@ -4,6 +4,14 @@ build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
+*.json
+src/main/resources/google/credentials.json
+*service-account*
+# Google credentials
+**/credentials.json
+/qdrant_data
+/replicas
+/Config-repo
 /models
 ### STS ###
 .apt_generated
@@ -13,6 +21,10 @@ build/
 .settings
 .springBeans
 .sts4-cache
+.Config-repo
+.access-refresh-token-keys
+.qdrant_data
+.models
 bin/
 !**/src/main/**/bin/
 !**/src/test/**/bin/

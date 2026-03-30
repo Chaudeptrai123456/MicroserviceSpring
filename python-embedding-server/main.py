@@ -1,36 +1,87 @@
 # uvicorn main:app --reload
+from auth_middle import verify_token
+from fastapi import Depends, HTTPException, status
 from fastapi import FastAPI,Body
-from qdrant_service import clear_and_recreate_orders,clear_and_recreate_products,search_with_description,recommend_products_for_user, clear_and_recreate_products,clear_and_recreate_orders,init_collections, save_product, save_order,get_all_orders_from_qdrant,get_all_products_from_qdrant,stringify_product,get_embedding,find_similar_products,delete_all_users,delete_all_products,delete_all_orders
+from user_ecommerce_profle import delete_all_users_from_qdrant,build_all_user_ecommerce_profiles,show_all_user_profiles,get_all_user_profiles_from_qdrant
+from qdrant_service import delete_all_products,clear_and_recreate_orders,clear_and_recreate_products,search_with_description,recommend_products_for_user, clear_and_recreate_products,clear_and_recreate_orders,init_collections, save_product, save_order,get_all_orders_from_qdrant,get_all_products_from_qdrant,stringify_product,get_embedding,find_similar_products,delete_all_users,delete_all_orders
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from qdrant_client import QdrantClient
 from pydantic import BaseModel
 from typing import List, Optional
 from fastapi import HTTPException
 from sync_service import sync_products_to_qdrant,sync_orders_to_qdrant
+from tracing import setup_tracing
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
 app = FastAPI(title="AI Recommendation Service")
 client = QdrantClient(host="localhost", port=6333)
 init_collections()
 app = FastAPI()
-
+setup_tracing(app)  
+from fastapi.middleware.cors import CORSMiddleware
+ 
 class SearchRequest(BaseModel):
     description: str
-
-@app.post("/search")
+class RecommendRequest(BaseModel):
+    email: str
+def require_admin(user=Depends(verify_token)):
+    roles = user.get("__roles__", [])
+    if "ADMIN" not in roles and "ROLE_ADMIN" not in roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin permission required"
+        )
+    return user
+@app.post("/search/product/description")
 def handle_search(req: SearchRequest):
+    print("search in python localhost:8000 and description : ",req.description)
     result =  search_with_description(req.description)
+    print("test result in py localhost: 8000 and resutl : ",result)
     return {"result": result}
-
-@app.get("/recomments")
-def handle_recomment_product():
-    email = "phamchaugiatu123@gmail.com"
+@app.post("/recomments")
+def handle_recomment_product(req: RecommendRequest,user=Depends(verify_token)):
+    email = req.email if req.email else "phamchaugiatu123@gmail.com"
     result = recommend_products_for_user(email)
     return {"products": result}
+def auto_sync():
+    try:
+        print("🔄 Auto sync started...")
+        sync_products_to_qdrant()
+        sync_orders_to_qdrant()
+        print("✅ Auto sync completed at 00:00")
+    except Exception as e:
+        print("❌ Auto sync error:", e)
+# Scheduler chạy lúc 00:00 mỗi ngày
+scheduler = BackgroundScheduler()
+scheduler.add_job(auto_sync, 'cron', hour=0, minute=0)
+scheduler.start()
+# Tắt scheduler khi app shutdown
+atexit.register(lambda: scheduler.shutdown())
+@app.get("/build") 
+def build_ecommerce_profile(user=Depends(require_admin)):
+    try:
+        # delete_all_users_from_qdrant()
+        build_all_user_ecommerce_profiles()
+        return {"status": "Ecommerce profile built successfully"}
+    except Exception as e:
+        print("❌ Error building ecommerce profile:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/show_profiles")
+def show_profiles(user=Depends(verify_token)):
+    try:
+        print("🔍 Fetching all user profiles...")
+        profiles = get_all_user_profiles_from_qdrant()
+        return {"profiles": profiles}
+    except Exception as e:
+        print("❌ Error showing profiles:", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/sync_postgres_qdrant")
 def sync_postgres_qdrant():
     try:
-        clear_and_recreate_orders()
         clear_and_recreate_products()
+        clear_and_recreate_orders()
         sync_products_to_qdrant()
         sync_orders_to_qdrant()
         return {"status": "recreated collections and synced"}
@@ -101,7 +152,7 @@ def get_all_products():
 class SimilarProductRequest(BaseModel):
     text: str
     limit: Optional[int] = 5
-@app.post("/find_similar_products")
+@app.post("/search/product/find_similar_products")
 def find_similar_product(body: dict = Body(...)):
     try:
         # Lấy text từ body JSON

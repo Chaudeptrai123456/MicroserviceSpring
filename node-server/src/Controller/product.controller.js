@@ -11,12 +11,14 @@ const recommendationEngine = async (req, res) => {
     if (!token) {
       return res.status(401).json({ error: "Thiếu token đăng nhập" });
     }
-
-    const response = await axiosInstance.post(API_PATHS.RECOMMENT.GET, {
+    console.log("✅ test auth_user middleware for recommendationEngine " + req.user.email);
+    const response = await axiosInstance.post(API_PATHS.RECOMMENT.GET,{
+      email: req.user.email
+    }, {
       headers: {
         Authorization: `Bearer ${token}`
       }
-    });
+    })
     const result = response.data;
     res.status(200).json({ result });
 
@@ -27,7 +29,6 @@ const recommendationEngine = async (req, res) => {
 };
 const createProduct = async(req,res)=>{
   try {
-    const email= req.user.email
     const productRequest = {
         name: req.body.name,
         description: req.body.description,
@@ -44,7 +45,7 @@ const createProduct = async(req,res)=>{
       messages:[
         {
           key: 'product',
-          value: JSON.stringify("test")
+          value: productRequest
         }
       ]
     })
@@ -91,13 +92,17 @@ const searchProducts = async (req, res) => {
       req.cookies?.token ||
       req.headers.authorization?.replace(/^Bearer\s+/i, "") ||
       req.accessToken;
+    let description = req.body.description
     const response = await axiosInstance.post(API_PATHS.SEARCH.GET, {
-      description: "test"
+      description: description
     }, {
       headers: {
         Authorization: `Bearer ${token}`
       }
-    });   
+    })
+    .catch (error=>{
+      return res.status(500).json({ message: "Lỗi khi gọi dịch vụ tìm kiếm", error: error.message });
+    })    
     res.status(200).json(response.data);
   } catch (error) {
     res.status(500).json({ message: "Lỗi khi tìm kiếm sản phẩm", error: error.message });

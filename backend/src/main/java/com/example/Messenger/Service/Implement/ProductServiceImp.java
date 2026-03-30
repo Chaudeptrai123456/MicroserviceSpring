@@ -3,15 +3,14 @@ package com.example.Messenger.Service.Implement;
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
 import com.example.Messenger.Entity.*;
-import com.example.Messenger.Record.DiscountRequest;
-import com.example.Messenger.Record.ImageRequest;
-import com.example.Messenger.Record.ProductRequest;
-import com.example.Messenger.Record.UpdateProduct;
-import com.example.Messenger.Repository.CategoryRepository;
-import com.example.Messenger.Repository.DiscountRepository;
-import com.example.Messenger.Repository.ImageRepository;
-import com.example.Messenger.Repository.ProductRepository;
-import com.example.Messenger.Service.EmbeddingService;
+import com.example.Messenger.Record.DTO.ProductStockDTO;
+import com.example.Messenger.Record.Orther.UpdateProduct;
+import com.example.Messenger.Record.Request.DiscountRequest;
+import com.example.Messenger.Record.Request.ImageRequest;
+import com.example.Messenger.Record.Request.ProductRequest;
+import com.example.Messenger.Record.Type.InventoryType;
+import com.example.Messenger.Record.View.ProductRevenueTimeView;
+import com.example.Messenger.Repository.*;
 import com.example.Messenger.Service.ProductService;
 import com.example.Messenger.Service.RedisService;
 import com.example.Messenger.Utils.ProductIdUtil;
@@ -25,7 +24,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.swing.plaf.basic.BasicInternalFrameTitlePane;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.*;
@@ -34,82 +35,71 @@ import java.util.stream.Collectors;
 @Service
 public class ProductServiceImp implements ProductService {
     private static final Duration PRODUCT_TTL = Duration.ofHours(1);
-    private static final Duration PRODUCT_PAGE_TTL = Duration.ofMinutes(5);
+    private static final Duration PRODUCT_PAGE_TTL = Duration.ofSeconds(100);
     private ProductIdUtil productIdUtil;
-
+    private final StockImportRepository stockImportRepository;
     private final RedisService redisService;
     private final DiscountRepository discountRepository;
-
+    private final InventoryService inventoryService;
     private final ProductRepository productRepository;
-    private final EmbeddingService embeddingService;
     private final CategoryRepository categoryRepository;
+    private final WarehouseStockRepository warehouseStockRepository;
     private final ImageRepository imageRepository;
-
     private final Cloudinary cloudinary;
 
     @Autowired
-    public ProductServiceImp(RedisService redisService, DiscountRepository discountRepository, ProductRepository productRepository,
-                             EmbeddingService embeddingService,
-                             CategoryRepository categoryRepository, ImageRepository imageRepository, Cloudinary cloudinary) {
+    public ProductServiceImp(StockImportRepository stockImportRepository, RedisService redisService, DiscountRepository discountRepository, InventoryService inventoryService, ProductRepository productRepository,
+                             CategoryRepository categoryRepository, WarehouseStockRepository warehouseStockRepository, ImageRepository imageRepository, Cloudinary cloudinary) {
+        this.stockImportRepository = stockImportRepository;
         this.redisService = redisService;
         this.discountRepository = discountRepository;
+        this.inventoryService = inventoryService;
         this.productRepository = productRepository;
-        this.embeddingService = embeddingService;
         this.categoryRepository = categoryRepository;
+        this.warehouseStockRepository = warehouseStockRepository;
         this.imageRepository = imageRepository;
         this.cloudinary = cloudinary;
     }
-
+    @Transactional
     @Override
     public Product createProduct(ProductRequest req) {
-        // 1. Lấy category (nếu ko tìm thấy -> lỗi)
         Category category = categoryRepository.findById(req.categoryId())
                 .orElseThrow(() -> new RuntimeException("Category not found"));
-
-        // 2. Tạo product cơ bản
         Product product = new Product();
         product.setId(generateId(req.name()));
         product.setName(req.name());
         product.setDescription(req.description());
-        product.setPrice(req.price());
+        product.setAvgCost( BigDecimal.valueOf(req.avgCost()));
+        product.setPrice( BigDecimal.valueOf(req.price()));
         product.setCreatedAt(LocalDate.now());
         product.setCategory(category);
         product.setQuantity(req.quantity());
-        // 3. Map images
-//        List<Image> images = Optional.ofNullable(req.images())
-//                .orElse(Collections.emptyList())
-//                .stream()
-//                .filter(Objects::nonNull)
-//                .map(bytes -> {
-//                    Image img = new Image();
-//                    img.setData(bytes.getBytes());
-//                    img.setProduct(product);
-//                    return img;
-//                })
-//                .collect(Collectors.toList());
-
-        // 4. Map features
-        List<Feature> features = Optional.ofNullable(req.features())
+        Set<Feature> features = Optional.ofNullable(req.features())
                 .orElse(Collections.emptyList())
                 .stream()
-                .filter(Objects::nonNull)
-                .map(fr -> {
-                    Feature f = new Feature();
-                    f.setName(fr.getClass().getName());   // 👈 sửa lại cho đúng
-                    f.setValue(fr.getClass().getName()); // 👈 không dùng getClass().getName()
-                    f.setProduct(product);
-                    return f;
+                .map(f -> {
+                    Feature feature = new Feature();
+                    feature.setName(f.name());
+                    feature.setValue(f.value());
+                    feature.setProduct(product);
+                    return feature;
                 })
-                .collect(Collectors.toList());
-
-//        product.setImages(new HashSet<>(images));
-        product.setFeatures(new HashSet<>(features));
-
-        // 5. ✅ Lưu xuống DB trước
+                .collect(Collectors.toSet());
+        product.setFeatures(features);
+        System.out.println("test " + product.getImages());
         Product saved = productRepository.save(product);
+        if (req.quantity() > 0) {
+            inventoryService.importStock(
+                    saved.getId(),
+                    req.quantity(),
+                    req.price(),
+                    "INITIAL",
+                    "Initial import",
+                    "INIT_" + saved.getId()
+            );
+        }
         return saved;
     }
-
 
     private String generateId(String name) {
         // Làm sạch tên: bỏ khoảng trắng, viết thường
@@ -126,17 +116,18 @@ public class ProductServiceImp implements ProductService {
     }
     @Override
     public Product updateProduct(String id, UpdateProduct newProduct, List<MultipartFile> images) throws IOException {
-
         Product existing = productRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Product not found"));
         existing.setUpdateAt(LocalDate.now());
         existing.setName(newProduct.getName() == null ? existing.getName():newProduct.getName());
         existing.setDescription(newProduct.getDescription() == null ? existing.getDescription(): newProduct.getDescription());
-        existing.setPrice(newProduct.getPrice() == null ? existing.getPrice() : existing.getPrice()+ newProduct.getPrice());
+        existing.setPrice(newProduct.getPrice() == null ? existing.getPrice() : existing.getPrice().add(BigDecimal.valueOf(newProduct.getPrice())));
 //        existing.setEmbedding(newProduct.getEmbedding() == null ? existing.ge);
         existing.setQuantity(newProduct.getQuantity() == null ? existing.getQuantity(): existing.getQuantity()+ newProduct.getQuantity());
+        existing.setUpdateAt(LocalDate.now());
+        System.out.println("test" + existing.getQuantity());
         // reset features
-//        existing.getFeatures().clear();
+        existing.getFeatures().clear();
         if (newProduct.getFeatures() != null) {
             for (Feature f : newProduct.getFeatures()) {
                 f.setProduct(existing);
@@ -145,14 +136,28 @@ public class ProductServiceImp implements ProductService {
         }
         // reset images
         existing.getImages().clear();
-        System.out.println(existing.getQuantity());
         String cacheKey = "product:" + id;
-        redisService.delete(cacheKey);
-        return productRepository.save(existing);
+        var result = productRepository.save(existing);
+        redisService.save(cacheKey,result,Duration.ofHours(1));
+        if (newProduct.getQuantity() != 0) {
+            inventoryService.importStock(
+                    existing.getId(),
+                    newProduct.getQuantity(),
+                    newProduct.getPrice(),                 // hoặc giá nhập riêng
+                    String.valueOf(InventoryType.ADJUST),
+                    "import",
+                    "IMPORT_" + existing.getId());      // refId (idempotent)
+            inventoryService.adjustStock(
+                    existing.getId(), newProduct.getQuantity(), newProduct.getReason()
+            );
+        }
+        System.out.println(existing.getQuantity());
+        return result;
     }
     @Override
     public Page<Product> getAllProducts(int page, int size) {
         String cacheKey = "product:page:" + page + ":" + size;
+        // Cache hit
         // Cache hit
         PageWrapper cachedPage = redisService.get(cacheKey, PageWrapper.class);
         if (cachedPage != null) {
@@ -172,7 +177,6 @@ public class ProductServiceImp implements ProductService {
         if (cached != null) {
             return cached;
         }
-
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Product not found"));
 
@@ -209,7 +213,7 @@ public class ProductServiceImp implements ProductService {
             throw new IllegalArgumentException("Phần trăm giảm giá phải nằm trong khoảng (0, 1]");
         }
         Discount discount = new Discount(
-                request.getPercentage(),
+                BigDecimal.valueOf(request.getPercentage()),
                 request.getStartDate(),
                 request.getEndDate()
         );
@@ -289,11 +293,56 @@ public class ProductServiceImp implements ProductService {
         redisService.saveList(cacheKey, new PageWrapper<>(result));
         return result;
     }
+//    @Transactional()
+//    public List<ProductStockDTO> getProductStockByWarehouse(String productId) {
+//
+//        List<WarehouseStock> stocks =
+//                warehouseStockRepository.findAllByProductId(productId);
+//
+//        if (stocks.isEmpty()) {
+//            throw new RuntimeException("No stock found for product: " + productId);
+//        }
+//
+//        return stocks.stream()
+//                .map(ws -> new ProductStockDTO(
+//                        ws.getWarehouse().getId(),
+//                        ws.getWarehouse().getName(),
+//                        ws.getQuantity()
+//                ))
+//                .toList();
+//    }
+    @Transactional()
+    public List<ProductStockDTO> getAllProductStock() {
 
+        List<WarehouseStock> stocks =
+                warehouseStockRepository.findAllWithProductAndWarehouse();
+
+        if (stocks.isEmpty()) {
+            return List.of(); // 👈 không throw nữa cho API dễ xài
+        }
+
+        return stocks.stream()
+                .map(ws -> new ProductStockDTO(
+                        ws.getProduct().getId(),
+                        ws.getProduct().getName(),
+                        ws.getWarehouse().getId(),
+                        ws.getWarehouse().getName(),
+                        ws.getQuantity()
+                ))
+                .toList();
+    }
+    @Transactional()
+    public int getTotalProductQuantity(String productId) {
+        return warehouseStockRepository.sumQuantityByProductId(productId);
+    }
     @Override
     public List<Product> getTopDiscountProducts(int limits) {
         Pageable pageable = PageRequest.of(0, limits);
         LocalDate today = LocalDate.now();
         return discountRepository.findTopDiscountProducts(today, pageable);
+    }
+
+    public List<ProductRevenueTimeView> getInfoChartOwner(LocalDate fromDate, LocalDate toDate) {
+        return this.productRepository.getProductRevenueByDay(fromDate,toDate);
     }
 }
