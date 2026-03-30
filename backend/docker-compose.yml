@@ -10,6 +10,28 @@ services:
       - nginx
     networks:
       - app-network
+  ai-server:
+    build:
+      context: ../python-embedding-server
+      dockerfile: Dockerfile
+    container_name: ai-server
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+    depends_on:
+      - qdrant
+      - postgres
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
   nginx:
     image: nginx:latest
     container_name: nginx
@@ -37,23 +59,6 @@ services:
     restart: always
     ports:
       - "9411:9411"
-    networks:
-      - app-network
-  ai-server:
-    build:
-      context: ../python-embedding-server
-      dockerfile: Dockerfile
-    container_name: ai-server
-    restart: always
-    ports:
-      - "8000:8000" # expose ra ngoài để debug
-    environment:
-      - PYTHONUNBUFFERED=1
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
     networks:
       - app-network
   backend:
