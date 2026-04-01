@@ -1,0 +1,173 @@
+version: "3.9"
+
+services:
+  nextjs:
+    build: ./ecommerce-ui
+    image: 013234656798/ecommerce-frontend:v1
+    container_name: nextjs
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./ecommerce-ui/.env.docker
+    depends_on:
+      - nginx
+    networks:
+      - app-network
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - gateway
+    networks:
+      - app-network
+
+  backend:
+    build: ./backend
+    image: 013234656798/ecommerce-backend:v1
+    container_name: backend
+    restart: always
+    volumes:
+      - ./keys:/app/keys
+    ports:
+      - "9999:9999"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    networks:
+      - app-network
+
+  gateway:
+    build: ./gateaway
+    image: 013234656798/api-gateway:v1
+    container_name: gateway
+    ports:
+      - "8090:8090"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    networks:
+      - app-network
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok
+    command: http backend:9999 # ✅ FIX (không dùng localhost)
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    ports:
+      - "4040:4040"
+    networks:
+      - app-network
+
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: chau
+      MONGO_INITDB_ROOT_PASSWORD: 123
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - app-network
+
+  postgres:
+    image: postgres:18
+    container_name: postgres-master
+    restart: always
+    environment:
+      POSTGRES_DB: ecommerce
+      POSTGRES_USER: master
+      POSTGRES_PASSWORD: 123
+    ports:
+      - "5432:5432"
+    volumes:
+      - message_postgres_data:/var/lib/postgresql/data
+      - ./master/init-master.sh:/docker-entrypoint-initdb.d/init-master.sh:ro
+    networks:
+      - app-network
+
+  postgres-replica:
+    image: postgres:18
+    container_name: postgres-replica
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      POSTGRES_USER: repuser
+      POSTGRES_PASSWORD: replica_pass
+      POSTGRES_DB: ecommerce
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./replica/replica-entrypoint.sh:/replica-entrypoint.sh:ro
+      - replica-data:/var/lib/postgresql/data
+    entrypoint: ["/bin/bash", "/replica-entrypoint.sh"]
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.4
+    container_name: kafka
+    restart: unless-stopped
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      CLUSTER_ID: "wK5oWMVSSl60oZKjO8vNjg=="
+    networks:
+      - app-network
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - app-network
+
+  node-server:
+    build: ./node-server
+    image: 013234656798/node-server:v1
+    container_name: node-server
+    restart: unless-stopped
+    depends_on:
+      - postgres-replica
+    ports:
+      - "8081:8081"
+    networks:
+      - app-network
+    env_file:
+      - ./node-server/.env.docker
+volumes:
+  mongo_data:
+  message_postgres_data:
+  replica-data:
+  qdrant_data:
+
+networks:
+  app-network:
+    driver: bridge

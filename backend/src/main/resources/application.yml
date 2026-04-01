@@ -65,7 +65,7 @@ spring:
       qdrant:
         host: localhost
         port: 6334
-        api-key: "Chaudeptrai" # Nếu không bật xác thực thì để trống
+        api-key: "Chaudeptrai"
         collection-name: my_vectors
         use-tls: false
         initialize-schema: true
@@ -115,18 +115,19 @@ logging:
     org.springframework.kafka: INFO
     org.springframework.security: DEBUG
 management:
-  tracing:
-    sampling:
-      probability: 1.0 # DEV: trace 100%
-  zipkin:
-    tracing:
-      endpoint: http://localhost:9411/api/v2/spans
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health
+  endpoint:
+    health:
+      show-details: always
+
 ---
 spring.config.activate.on-profile: docker
+management:
+  tracing:
+    enabled: false
 server:
   port: 9999
   forward-headers-strategy: framework
@@ -197,4 +198,58 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
+
 # http://localhost:9999/oauth2/authorize?response_type=code&client_id=chau&scope=openid%20profile%20email&state=RiPMOtv2G_wuZoYwlRBMggf97zHVUc1FWSMr51ek56U%3D&redirect_uri=http://localhost:8090/login/oauth2/code/messenger&nonce=fWQB9EdnPnRNAF_hC8_FLVBU_23YU8R8rUdvszdIWHk
+---
+spring.config.activate.on-profile: prod
+
+server:
+  port: 9999
+  forward-headers-strategy: framework
+
+app:
+  auth:
+    host: backend-service
+    port: 9999
+
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres-master:5432/ecommerce
+    username: master
+    password: 123
+
+  data:
+    redis:
+      host: redis
+      port: 6379
+
+  kafka:
+    bootstrap-servers: kafka:9092
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://backend-service:9999/oauth2/jwks
+
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - email
+              - profile
+
+            redirect-uri: "https://your-domain.com/login/oauth2/code/google"
+
+            authorization-grant-type: authorization_code
+            client-name: Google
+
+      provider:
+        google:
+          authorization-uri: https://accounts.google.com/o/oauth2/v2/auth?prompt=select_account
+
+management:
+  tracing:
+    enabled: false

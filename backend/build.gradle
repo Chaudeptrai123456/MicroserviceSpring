@@ -24,10 +24,6 @@ bootRun {
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
 
-
-    implementation 'io.micrometer:micrometer-tracing-bridge-brave'
-    implementation 'io.zipkin.reporter2:zipkin-reporter-brave'
-
     // Google Auth (BẮT BUỘC)
     implementation 'com.google.auth:google-auth-library-oauth2-http:1.23.0'
 
@@ -73,7 +69,8 @@ dependencies {
 
 // 🔐 JWT (JJWT)
 	implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
-	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
+	runtimeOnly 'io.jsonwebtoken:jjwt' +
+            '-impl:0.11.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
 
 // 🧠 Nimbus JWT (Spring Authorization Server dùng)

@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: 013234656798/ecommerce-backend:v1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9999
+
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "docker"
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9092"
+            - name: SPRING_DATA_REDIS_HOST
+              value: "redis"
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-master:5432/ecommerce"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "master"
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "123"
+
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 9999
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 9999
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
