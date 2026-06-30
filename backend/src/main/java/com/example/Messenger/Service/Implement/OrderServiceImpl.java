@@ -6,6 +6,10 @@ import com.example.Messenger.Record.Request.OrderRequest;
 import com.example.Messenger.Repository.*;
 import com.example.Messenger.Service.OrderService;
 import com.example.Messenger.Service.PendingOrderService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -274,4 +278,20 @@ public class OrderServiceImpl implements OrderService {
                 BigDecimal.ONE.subtract(activeDiscount.getPercentage())
         );
     }
+    public Page<Order> getAllOrders(int page, int size) {
+        if (page < 0 || size <= 0) {
+            throw new IllegalArgumentException("Số trang hoặc kích thước trang không hợp lệ!");
+        }
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+
+        try {
+            Page<Order> result = this.orderRepository.findAll(pageable);
+
+            return result;
+
+        } catch (Exception e) {
+            throw new RuntimeException("Có lỗi xảy ra trong quá trình truy xuất dữ liệu.");
+        }
+    }
+
 }

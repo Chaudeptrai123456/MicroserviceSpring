@@ -3,6 +3,7 @@ FROM node:20
 
 # Tạo thư mục app
 WORKDIR /app
+ENV NODE_ENV=docker
 
 # Copy package files và cài đặt dependencies
 COPY package*.json ./

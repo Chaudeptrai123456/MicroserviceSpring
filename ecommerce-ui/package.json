@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:k8s": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "next start",
+    "start:k8s": "next start -H 0.0.0.0 -p 3000",
     "lint": "eslint"
-  },
+  },  
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",

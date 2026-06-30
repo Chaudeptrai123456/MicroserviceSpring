@@ -21,7 +21,6 @@ WORKDIR /app
 # copy standalone server
 COPY --from=builder /app/.next/standalone ./
 
-# copy static + public (CỰC QUAN TRỌNG)
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 

@@ -7,6 +7,7 @@ import com.example.Messenger.Service.Implement.OrderServiceImpl;
 import com.example.Messenger.Utils.JwtTokenUtil;
 import com.example.Messenger.Utils.KeyUtil;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -42,8 +43,10 @@ public class OrderController {
     }
     // 🔍 Lấy tất cả đơn hàng
     @GetMapping
-    public ResponseEntity<List<Order>> getAllOrders() {
-        return ResponseEntity.ok(orderService.getAllOrders());
+    public ResponseEntity<Page<Order>> getAllOrders(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(orderService.getAllOrders(page,size));
     }
 
     // 🔎 Lấy chi tiết 1 đơn

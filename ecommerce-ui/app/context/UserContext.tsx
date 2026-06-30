@@ -21,7 +21,7 @@ interface UserContextType {
 }
 
 export const UserContext = createContext<UserContextType | undefined>(
-  undefined
+  undefined,
 );
 
 const backendApi = apiClient("BACKEND");
@@ -38,10 +38,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
     return undefined;
   }
+  const getToken = () => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("token");
+    }
+    return null;
+  };
   const refetchUser = useCallback(async () => {
     setLoading(true);
     try {
-      const token = getCookie("token"); // lấy token từ cookie
+      const token = getToken();
       const res = await backendApi.get(API_PATHS.AUTH.GET_PROFILE, {
         headers: {
           Authorization: token ? `Bearer ${token}` : "",
@@ -52,6 +58,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         ...res.data,
         token: token,
       };
+      console.log("User data after fetch:", result);
       setUser(result);
     } catch {
       setUser(null);

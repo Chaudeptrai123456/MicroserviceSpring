@@ -73,7 +73,7 @@ export default function ProductUpdateTab({ product, onSuccess }: Props) {
       setErrorMsg("");
 
       const token = user?.token;
-
+      console.log("Updating product with token:", token);
       await backend.post(
         API_PATHS.PRODUCT.UPDATE(product.id),
         {

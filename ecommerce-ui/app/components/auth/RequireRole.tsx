@@ -22,7 +22,7 @@ export default function RequireRole({ role, children }: Props) {
     if (loading) return;
 
     if (!user) {
-      // console.log("User not logged in, redirecting to login page." + role);
+      console.log("User not logged in, redirecting to login page." + role);
       router.replace("/login");
       return;
     }

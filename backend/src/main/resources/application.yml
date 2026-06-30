@@ -114,6 +114,7 @@ logging:
     org.apache.kafka: INFO
     org.springframework.kafka: INFO
     org.springframework.security: DEBUG
+frontend-url: http://localhost:3000
 management:
   endpoints:
     web:
@@ -160,6 +161,8 @@ spring:
               - profile
             # redirect-uri: "http://localhost:9999/login/oauth2/code/{registrationId}"
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            authorization-grant-type: authorization_code
+            client-name: Google
   kafka:
     bootstrap-servers: kafka:9092
     topic:
@@ -202,54 +205,81 @@ spring:
 # http://localhost:9999/oauth2/authorize?response_type=code&client_id=chau&scope=openid%20profile%20email&state=RiPMOtv2G_wuZoYwlRBMggf97zHVUc1FWSMr51ek56U%3D&redirect_uri=http://localhost:8090/login/oauth2/code/messenger&nonce=fWQB9EdnPnRNAF_hC8_FLVBU_23YU8R8rUdvszdIWHk
 ---
 spring.config.activate.on-profile: prod
+frontend-url: http://localhost
+management:
+  health:
+    mail:
+      enabled: false
+  tracing:
+    enabled: false
 
 server:
   port: 9999
-  forward-headers-strategy: framework
+  forward-headers-strategy: framework # OK cho ingress
 
 app:
   auth:
-    host: backend-service
+    host: backend # gọi nội bộ K8s
     port: 9999
 
+google:
+  client-id: 325019990890-qe5jj732uqji378c1ssv54ghh09dtoab.apps.googleusercontent.com
+  client-secret: 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
+  redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+  scopes:
+    - https://www.googleapis.com/auth/gmail.send
+
 spring:
-  datasource:
-    url: jdbc:postgresql://postgres-master:5432/ecommerce
-    username: master
-    password: 123
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://backend:9999/oauth2/jwks
+
+      client:
+        registration:
+          google:
+            client-id: 325019990890-qe5jj732uqji378c1ssv54ghh09dtoab.apps.googleusercontent.com
+            client-secret: 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
+            scope:
+              - email
+              - profile
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            authorization-grant-type: authorization_code
+            client-name: Google
+
+  kafka:
+    bootstrap-servers: kafka:9092
+    topic:
+      health: health-check-topic
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+    consumer:
+      group-id: default-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
 
   data:
     redis:
       host: redis
       port: 6379
 
-  kafka:
-    bootstrap-servers: kafka:9092
+  datasource:
+    url: jdbc:postgresql://postgres-master:5432/ecommerce
+    username: master
+    password: 123
+    driver-class-name: org.postgresql.Driver
 
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          jwk-set-uri: http://backend-service:9999/oauth2/jwks
-
-      client:
-        registration:
-          google:
-            client-id: ${GOOGLE_CLIENT_ID}
-            client-secret: ${GOOGLE_CLIENT_SECRET}
-            scope:
-              - email
-              - profile
-
-            redirect-uri: "https://your-domain.com/login/oauth2/code/google"
-
-            authorization-grant-type: authorization_code
-            client-name: Google
-
-      provider:
-        google:
-          authorization-uri: https://accounts.google.com/o/oauth2/v2/auth?prompt=select_account
-
-management:
-  tracing:
-    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect

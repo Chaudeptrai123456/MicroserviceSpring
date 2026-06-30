@@ -1,27 +1,18 @@
 package com.example.Messenger.Security;
 
 import com.example.Messenger.Entity.User;
-import com.example.Messenger.Service.Implement.CustomLogoutHandler;
-import com.example.Messenger.Service.Implement.CustomLogoutSuccessHandler;
 import com.example.Messenger.Service.Implement.UserService;
 import com.example.Messenger.Service.RedisService;
 import com.example.Messenger.Utils.JwtTokenUtil;
 import com.example.Messenger.Utils.KeyUtil;
-import com.nimbusds.jose.jwk.JWKSet;
-import com.nimbusds.jose.jwk.RSAKey;
-import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
-import com.nimbusds.jose.jwk.source.JWKSource;
-import com.nimbusds.jose.proc.SecurityContext;
 import jakarta.servlet.http.Cookie;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.access.expression.method.DefaultMethodSecurityExpressionHandler;
-import org.springframework.security.access.expression.method.MethodSecurityExpressionHandler;
-import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
-import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -35,7 +26,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.savedrequest.SavedRequest;
 import org.springframework.web.cors.CorsConfiguration;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -49,128 +39,166 @@ import java.util.Optional;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
-
+    private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
     private final UserService userService;
     private final RedisService redisService;
-    private final CustomLogoutHandler customLogoutHandler;
-    private final CustomLogoutSuccessHandler customLogoutSuccessHandler;
-    @Value("frontend-url")
+    @Value("${frontend-url}")
     private String url;
-
-    public SecurityConfig(UserService userService, RedisService redisService, CustomLogoutHandler customLogoutHandler, CustomLogoutSuccessHandler customLogoutSuccessHandler) {
+    public SecurityConfig(UserService userService, RedisService redisService) {
         this.userService = userService;
         this.redisService = redisService;
-        this.customLogoutHandler = customLogoutHandler;
-        this.customLogoutSuccessHandler = customLogoutSuccessHandler;
     }
+@Bean
+@Order(1)
+public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                               JwtAuthenticationFilter jwtAuthenticationFilter,
+                                               KeyPair keyPair) throws Exception {
 
-    @Bean
-    @Order(2)
-    public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   JwtAuthenticationFilter jwtAuthenticationFilter,
-                                                   KeyPair keyPair) throws Exception {
-        HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
-        requestCache.setCreateSessionAllowed(true);
-        http
-                // font end
-                .cors(cors -> cors.configurationSource(request -> {
-                    CorsConfiguration config = new CorsConfiguration();
-                    config.setAllowedOrigins(List.of("http://localhost","http://localhost:3000"));
-                    config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-                    config.setAllowedHeaders(List.of("*"));
-                    config.setAllowCredentials(true);
-                    return config;
-                }))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.GET,"/api/orders/confirm","/","/logout","/search/**","/actuator/**").permitAll()
-                        .requestMatchers(HttpMethod.GET,"/api/categories").permitAll()
-                        .requestMatchers(HttpMethod.GET,"/api/products/top-discount").permitAll()
-                        .requestMatchers(
-                                "/",
-                                "/login",
-                                "/error",
-                                "/default-ui.css",
-                                "/.well-known/appspecific/com.chrome.devtools.json",
-                                "/api/products/get",
-                                "/api/products/search/**"
-                        ).permitAll()
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST,"/api/owner/**").hasRole("OWNER")
-                        .requestMatchers(HttpMethod.POST,"/api/user/verify/staff").hasAnyRole("MANAGER")
-                        .requestMatchers("/api/staff/**").hasAnyRole("MANAGER","STAFF")
-                        .requestMatchers("/api/manager/**").hasAnyRole("MANAGER")
-                        .requestMatchers("/api/admin/**").hasAnyRole("MANAGER","STAFF")
-                        .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/products/**").hasRole("ADMIN")
-                        .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/products/**").hasRole("ADMIN")
-                        .requestMatchers("/api/orders").authenticated()
-                        .anyRequest().authenticated()
-                )
-                .logout(logout -> logout
-                        .logoutUrl("/logout")
-                        .addLogoutHandler(customLogoutHandler)
-                        .logoutSuccessHandler(customLogoutSuccessHandler)
-                        .invalidateHttpSession(true)
-                        .deleteCookies("token")
-                )
+    http
+        .csrf(csrf -> csrf.disable())
+        .cors(cors -> cors.configurationSource(request -> {
+            CorsConfiguration config = new CorsConfiguration();
+            config.setAllowedOrigins(List.of(this.url));
+            config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+            config.setAllowedHeaders(List.of("*"));
+            config.setAllowCredentials(true);
+            return config;
+        }))
+        .sessionManagement(session ->
+            session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+        )
+        .authorizeHttpRequests(auth -> auth
+            .requestMatchers("/", "/login","/login/**", "/error", "/actuator/**").permitAll().requestMatchers("/api/auth/logout").authenticated()
+            .requestMatchers(HttpMethod.GET,
+                "/api/categories",
+                "/api/products/top-discount",
+                "/api/products/get",
+                "/api/products/search/**"
+            ).permitAll()
+            .requestMatchers(HttpMethod.POST, "/api/products/**").hasAnyRole("ADMIN", "OWNER")
+            .requestMatchers(HttpMethod.PUT, "/api/products/**").hasAnyRole("ADMIN", "OWNER")
+            .requestMatchers(HttpMethod.DELETE, "/api/products/**").hasAnyRole("ADMIN", "OWNER")
+            .requestMatchers("/api/orders").authenticated()
+            .anyRequest().authenticated()
+        )
+        .oauth2Login(oauth2 -> oauth2
+            .successHandler((request, response, authentication) -> {
+                OAuth2User oauthUser = (OAuth2User) authentication.getPrincipal();
+                String email = oauthUser.getAttribute("email");
+                String name = oauthUser.getAttribute("name");
+                String picture = oauthUser.getAttribute("picture");
+                User user = userService.handleLogin(email, name, picture);
+                String jwtToken = JwtTokenUtil.generateToken(user, keyPair.getPrivate());
+                String refreshToken = JwtTokenUtil.generateTokenRefresh(user, keyPair.getPrivate());
+                redisService.saveRefreshToken(jwtToken, refreshToken);
+                String redirectUrl = this.url+"/oauth2/success" + "?accessToken=" + jwtToken + "&refreshToken=" + refreshToken;
+                response.sendRedirect(redirectUrl);
+//                response.setContentType("application/json");
+//                response.setCharacterEncoding("UTF-8");
+//                String json = """
+//                {
+//                  "accessToken": "%s",
+//                  "refreshToken": "%s"
+//                }
+//                """.formatted(jwtToken, refreshToken);
+//                response.getWriter().write(json);
+//                response.getWriter().flush();
+                // redirect to next js server
+            })
+        )
+        .oauth2ResourceServer(oauth2 -> oauth2
+            .jwt(jwt -> jwt
+                .decoder(jwtDecoder(keyPair))
+                .jwtAuthenticationConverter(jwtAuthenticationConverter())
+            )
+        )
+        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+    return http.build();
+}
+    // @Bean
+    // @Order(1)
+    // public SecurityFilterChain securityFilterChain(HttpSecurity http,
+    //                                                JwtAuthenticationFilter jwtAuthenticationFilter,
+    //                                                KeyPair keyPair) throws Exception {
+    //     HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
+    //     requestCache.setCreateSessionAllowed(true);
+    //     http
+    //             .cors(cors -> cors.configurationSource(request -> {
+    //                 CorsConfiguration config = new CorsConfiguration();
+    //                 config.setAllowedOrigins(List.of("http://localhost:3000","http://localhost:80"));
+    //                 config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+    //                 config.setAllowedHeaders(List.of("*"));
+    //                 config.setAllowCredentials(true);
+    //                 return config;
+    //             }))
+    //             .authorizeHttpRequests(auth -> auth
+    //                     .requestMatchers(HttpMethod.GET,"/api/orders/confirm","/").permitAll()
+    //                     .requestMatchers(HttpMethod.GET,"/api/categories").permitAll()
+    //                     .requestMatchers(HttpMethod.GET,"/api/products/top-discount").permitAll()
+    //                     .requestMatchers(
+    //                             "/",
+    //                             "/login",
+    //                             "/actuator/**",
+    //                             "/error",
+    //                             "/default-ui.css",
+    //                             "/.well-known/appspecific/com.chrome.devtools.json",
+    //                             "/api/products/get",
+    //                             "/api/products/search/**"
+    //                     ).permitAll()
+    //                     .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
+    //                     .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/products/**").hasRole("ADMIN")
+    //                     .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/products/**").hasRole("ADMIN")
+    //                     .requestMatchers("/api/orders").authenticated()
+    //                     .anyRequest().authenticated()
+    //             )
+    //             .oauth2Login(oauth2 -> oauth2
+    //                     .successHandler((request, response, authentication) -> {
+    //                         OAuth2User oauthUser = (OAuth2User) authentication.getPrincipal();
+    //                         String email = oauthUser.getAttribute("email");
+    //                         String name = oauthUser.getAttribute("name");
+    //                         String picture = oauthUser.getAttribute("picture");
+    //                         User user = userService.handleLogin(email, name,picture);
+    //                         String jwtToken = JwtTokenUtil.generateToken(user, keyPair.getPrivate());
+    //                         String refreshToken = JwtTokenUtil.generateTokenRefresh(user, keyPair.getPrivate());
+    //                         redisService.saveRefreshToken(jwtToken, refreshToken);
 
-                .oauth2Login(oauth2 -> oauth2
-                        .successHandler((request, response, authentication) -> {
-                            OAuth2User oauthUser = (OAuth2User) authentication.getPrincipal();
-                            String email = oauthUser.getAttribute("email");
-                            String name = oauthUser.getAttribute("name");
-                            String picture = oauthUser.getAttribute("picture");
-                            User user = userService.handleLogin(email, name,picture);
-                            String jwtToken = JwtTokenUtil.generateToken(user, keyPair.getPrivate());
-                            String refreshToken = JwtTokenUtil.generateTokenRefresh(user, keyPair.getPrivate());
-                            redisService.saveRefreshToken(jwtToken, refreshToken);
+    //                         Cookie cookie = new Cookie("token", jwtToken);
+    //                         cookie.setHttpOnly(false);
+    //                         cookie.setSecure(false); // ⚠️ Nếu đang test ở localhost thì để false
+    //                         cookie.setPath("/");
+    //                         cookie.setMaxAge((int) Duration.ofHours(1).toSeconds());
+    //                         cookie.setAttribute("SameSite", "Lax"); // hoặc "None" nếu cần
+    //                         response.addCookie(cookie);
 
-                            Cookie cookie = new Cookie("token", jwtToken);
-                            cookie.setHttpOnly(false);
-                            cookie.setSecure(false); //  test ở localhost thì để false
-                            cookie.setPath("/");
-                            cookie.setMaxAge((int) Duration.ofHours(1).toSeconds());
-                            cookie.setAttribute("SameSite", "Lax"); //
-                            response.addCookie(cookie);
-//                            response.sendRedirect("/api/user/oauth2/info");
-                             // Gửi refresh token qua header (cookie không chứa được 2 key)
-                             SavedRequest savedRequest = requestCache.getRequest(request, response);
-                             if (savedRequest != null) {
-                                 System.out.println("🔹 Saved redirect: " + savedRequest.getRedirectUrl());
-                             } else {
-                                 System.out.println("⚠️ No saved request found!");
-                             }
-                             String redirectUrl;
-                             if (savedRequest != null) {
-                                 redirectUrl = savedRequest.getRedirectUrl();
-                                 // Xóa saved request để tránh bị redirect lặp
-                                 requestCache.removeRequest(request, response);
-                             } else {
-                                 redirectUrl = "http://localhost:3000"; // fallback mặc định
-                             }
-                             // Redirect tới URL cũ hoặc fallback
-                             response.sendRedirect(redirectUrl);
-                        })
-                )
-                .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(jwt -> jwt
-                                .decoder(jwtDecoder(keyPair))
-                                .jwtAuthenticationConverter(jwtAuthenticationConverter())
-                        )
-                )
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
-        return http.build();
-    }
-    @Bean
-    public JWKSource<SecurityContext> jwkSource() {
-        KeyPair keyPair = KeyUtil.loadOrCreateKeyPair();
-
-        RSAKey rsaKey = new RSAKey.Builder((RSAPublicKey) keyPair.getPublic())
-                .privateKey((RSAPrivateKey) keyPair.getPrivate())
-                .keyID("auth-key") //
-                .build();
-
-        return new ImmutableJWKSet<>(new JWKSet(rsaKey));
-    }
+    //                         // Gửi refresh token qua header (cookie không chứa được 2 key)
+    //                         SavedRequest savedRequest = requestCache.getRequest(request, response);
+    //                         if (savedRequest != null) {
+    //                             System.out.println("🔹 Saved redirect: " + savedRequest.getRedirectUrl());
+    //                         } else {
+    //                             System.out.println("⚠️ No saved request found!");
+    //                         }
+    //                         String redirectUrl;
+    //                         if (savedRequest != null) {
+    //                             redirectUrl = savedRequest.getRedirectUrl();
+    //                             // Xóa saved request để tránh bị redirect lặp
+    //                             requestCache.removeRequest(request, response);
+    //                         } else {
+    //                             redirectUrl = url; // fallback mặc định
+    //                         }
+    //                         // Redirect tới URL cũ hoặc fallback
+    //                         log.info("test redirected uri " + url);
+    //                         response.sendRedirect(redirectUrl);
+    //                     })
+    //             )
+    //             .oauth2ResourceServer(oauth2 -> oauth2
+    //                     .jwt(jwt -> jwt
+    //                             .decoder(jwtDecoder(keyPair))
+    //                             .jwtAuthenticationConverter(jwtAuthenticationConverter())
+    //                     )
+    //             )
+    //             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+    //     return http.build();
+    // }
     // ✅ Load hoặc tạo KeyPair (sử dụng KeyUtil)
     @Bean
     public KeyPair keyPair() {
@@ -186,23 +214,7 @@ public class SecurityConfig {
     public JwtAuthenticationFilter jwtAuthenticationFilter(JwtDecoder jwtDecoder) {
         return new JwtAuthenticationFilter(jwtDecoder);
     }
-    @Bean
-    public MethodSecurityExpressionHandler methodSecurityExpressionHandler( RoleHierarchy roleHierarchy) {
-        DefaultMethodSecurityExpressionHandler handler = new DefaultMethodSecurityExpressionHandler();
-        handler.setRoleHierarchy(roleHierarchy);
-        return handler;
-    }
-    @Bean
-    public RoleHierarchy roleHierarchy() {
-        RoleHierarchyImpl hierarchy = new RoleHierarchyImpl();
-        hierarchy.setHierarchy("""
-        ROLE_OWNER > ROLE_ADMIN
-        ROLE_ADMIN > ROLE_MANAGER
-        ROLE_MANAGER > ROLE_STAFF
-        ROLE_STAFF > ROLE_USER
-    """);
-        return hierarchy;
-    }
+
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
         JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();

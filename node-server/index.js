@@ -11,17 +11,22 @@ require("./src/Config/data.config");
 const productRoute = require("./src/Route/product.route");
 const authRoute = require("./src/Route/auth.route");
 const orderRoute = require("./src/Route/order.route");
+if (process.env.NODE_ENV !== "docker") {
+  require("dotenv").config();  
+}
+dotenv.config({
+  path: process.env.NODE_ENV === "docker" ? ".env.docker" : ".env",
+});
 
-dotenv.config();
-
+console.log("Node Service - Environment:", process.env.NODE_ENV);
 const app = express();
 
 /* ================= METRICS ================= */
 const register = new client.Registry();
 client.collectDefaultMetrics({ register });
 
-app.get('/metrics', async (req, res) => {
-  res.set('Content-Type', register.contentType);
+app.get("/metrics", async (req, res) => {
+  res.set("Content-Type", register.contentType);
   res.end(await register.metrics());
 });
 

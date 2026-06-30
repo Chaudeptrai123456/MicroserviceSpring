@@ -92,15 +92,6 @@ services:
     ports:
       - "4040:4040"
 
-  resilence:
-    build:
-      context: ../resilience4j
-      dockerfile: Dockerfile
-    container_name: resilience-server
-    ports:
-      - "8060:8060"
-    networks:
-      - app-network
 
   mongodb:
     image: mongo:latest
@@ -242,16 +233,16 @@ services:
     networks:
       - app-network
 
-  prometheus:
-    image: prom/prometheus:v2.52.0
-    container_name: prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    networks:
-      - app-network
-    restart: unless-stopped
+  # prometheus:
+  #   image: prom/prometheus:v2.52.0
+  #   container_name: prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./prometheus.yml:/etc/prometheus/prometheus.yml
+  #   networks:
+  #     - app-network
+  #   restart: unless-stopped
 
   kafka:
     image: confluentinc/cp-kafka:7.4.4

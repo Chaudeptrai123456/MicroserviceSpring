@@ -31,6 +31,7 @@ export default function Products() {
     if (!user?.token) return;
 
     try {
+      console.log("Fetching products with token:", user.token);
       const res = await backend.get(API_PATHS.PRODUCT.GET_ALL, {
         headers: {
           Authorization: `Bearer ${user.token}`,
@@ -40,7 +41,7 @@ export default function Products() {
           size,
         },
       });
-
+      console.log("Fetching products with token:", res.data.products);
       setProductList(res.data.products);
       setTotalPages(res.data.totalPages);
     } catch (error) {

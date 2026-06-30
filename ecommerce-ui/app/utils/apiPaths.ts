@@ -1,5 +1,3 @@
-import { create } from "node_modules/axios/index.cjs";
-
 export const API_PATHS = {
   AUTH: {
     REGISTER: "/api/auth/register",

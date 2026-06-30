@@ -24,10 +24,6 @@ public class HomeController {
     public String loginPage() {
         return "login";
     }
-    @GetMapping("/logout/page")
-    public String logoutPage() {
-        return "logout";
-    }
     @PostMapping("/logout")
     public void logout(HttpServletRequest request,
                        HttpServletResponse response,
@@ -43,11 +39,9 @@ public class HomeController {
                 }
             }
         }
-
         if (jwtToken != null) {
             redisService.deleteRefreshToken(jwtToken);
         }
-
         deleteCookie(response, "token");
 
         deleteCookie(response, "refresh_token");
