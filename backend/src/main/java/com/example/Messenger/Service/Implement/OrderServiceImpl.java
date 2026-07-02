@@ -1,8 +1,11 @@
 package com.example.Messenger.Service.Implement;
+import org.springframework.kafka.core.KafkaTemplate;
 
 import com.example.Messenger.Entity.*;
 import com.example.Messenger.Record.Request.OrderItemRequest;
 import com.example.Messenger.Record.Request.OrderRequest;
+import com.example.Messenger.Record.Saga.OrderStockCommand;
+import com.example.Messenger.Record.Saga.SagaOrderItem;
 import com.example.Messenger.Repository.*;
 import com.example.Messenger.Service.OrderService;
 import com.example.Messenger.Service.PendingOrderService;
@@ -12,12 +15,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
-
 @Service
 @Transactional
 public class OrderServiceImpl implements OrderService {
@@ -30,8 +31,10 @@ public class OrderServiceImpl implements OrderService {
     private final InventoryLogRepository inventoryLogRepository;
     private final WarehouseRepository warehouseRepository;
     private final WarehouseStockRepository warehouseStockRepository;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
+
     private final StockImportRepository stockImportRepository;
-    public OrderServiceImpl(PendingOrderService pendingOrderService, GmailServiceImp gmailServiceImp, OrderRepository orderRepository, ProductRepository productRepository, OrderItemRepository orderItemRepository, InventoryService inventoryService, InventoryLogRepository inventoryLogRepository, WarehouseRepository warehouseRepository, WarehouseStockRepository warehouseStockRepository, StockImportRepository stockImportRepository) {
+    public OrderServiceImpl(PendingOrderService pendingOrderService, GmailServiceImp gmailServiceImp, OrderRepository orderRepository, ProductRepository productRepository, OrderItemRepository orderItemRepository, InventoryService inventoryService, InventoryLogRepository inventoryLogRepository, WarehouseRepository warehouseRepository, WarehouseStockRepository warehouseStockRepository, KafkaTemplate<String, Object> kafkaTemplate, StockImportRepository stockImportRepository) {
         this.pendingOrderService = pendingOrderService;
         this.gmailServiceImp = gmailServiceImp;
         this.orderRepository = orderRepository;
@@ -41,6 +44,7 @@ public class OrderServiceImpl implements OrderService {
         this.inventoryLogRepository = inventoryLogRepository;
         this.warehouseRepository = warehouseRepository;
         this.warehouseStockRepository = warehouseStockRepository;
+        this.kafkaTemplate = kafkaTemplate;
         this.stockImportRepository = stockImportRepository;
     }
     @Override
@@ -148,79 +152,144 @@ public class OrderServiceImpl implements OrderService {
         gmailServiceImp.sendConfirmationEmail(request.customerEmail(), token);
         return token;
     }
+//
+//    @Override
+//    @Transactional
+//    public Order confirmOrder(String token) {
+//        OrderRequest request = pendingOrderService.getPendingOrder(token);
+//        if (request == null) {
+//            throw new RuntimeException("Token không hợp lệ hoặc đã hết hạn!");
+//        }
+//        Warehouse warehouse = selectBestWarehouse(request);
+//        Order order = new Order();
+//        order.setId(UUID.randomUUID().toString());
+//        order.setCustomerName(request.customerName());
+//        order.setAddress(request.address());
+//        order.setCustomerEmail(request.customerEmail());
+//        order.setCreatedAt(LocalDateTime.now());
+//        order.setStatus("CONFIRMED");
+//        BigDecimal totalAmount = BigDecimal.ZERO;
+//        Set<OrderItem> items = new HashSet<>();
+//
+//        for (OrderItemRequest itemReq : request.items()) {
+//
+//            Product product = productRepository.findById(itemReq.productId())
+//                    .orElseThrow(() ->
+//                            new RuntimeException("Product not found: " + itemReq.productId())
+//                    );
+//
+//            WarehouseStock stock = warehouseStockRepository
+//                    .findByWarehouseAndProduct(warehouse, product)
+//                    .orElseThrow(() ->
+//                            new RuntimeException(
+//                                    "Product not available in warehouse: " + product.getName()
+//                            )
+//                    );
+//
+//            if (stock.getQuantity() < itemReq.quantity()) {
+//                throw new RuntimeException(
+//                        "Not enough stock for product: " + product.getName()
+//                );
+//            }
+//
+//            stock.setQuantity(stock.getQuantity() - itemReq.quantity());
+//            warehouseStockRepository.save(stock);
+//            BigDecimal importPrice =  stockImportRepository.findLatestImportPrice(product.getId(), warehouse.getId());
+//            OrderItem item = new OrderItem();
+//            item.setId(UUID.randomUUID().toString());
+//            item.setProduct(product);
+//            item.setQuantity(itemReq.quantity());
+//            item.setOrder(order);
+//            item.setSellPrice(product.getPrice().subtract(product.getPrice().multiply(product.getCurrentDiscountPercentage())));
+//            BigDecimal sellPrice = product.getPrice() .multiply(BigDecimal.ONE.subtract(product.getCurrentDiscountPercentage()));
+//            item.setSellPrice(sellPrice);
+//            items.add(item);
+//            totalAmount = totalAmount.add(
+//                    item.getSellPrice().multiply(BigDecimal.valueOf(itemReq.quantity()))
+//            );
+//        }
+//
+//        order.setItems(items);
+//        order.setTotalAmount(totalAmount);
+//
+//        Order saved = orderRepository.save(order);
+//        for (OrderItemRequest itemReq : request.items()) {
+//            inventoryService.sell(itemReq.productId(), itemReq.quantity(), saved.getId(),warehouse.getId());
+//        }
+//        pendingOrderService.deletePendingOrder(token);
+//        gmailServiceImp.sendSuccessEmail(request.customerEmail(), saved);
+//
+//        return saved;
+//    }
 
     @Override
     @Transactional
     public Order confirmOrder(String token) {
-
+        // 1. Lấy thông tin đơn hàng tạm thời từ Redis/Cache
         OrderRequest request = pendingOrderService.getPendingOrder(token);
         if (request == null) {
             throw new RuntimeException("Token không hợp lệ hoặc đã hết hạn!");
         }
 
-        Warehouse warehouse = selectBestWarehouse(request);
-
+        // 2. Khởi tạo thực thể Order mới
         Order order = new Order();
         order.setId(UUID.randomUUID().toString());
         order.setCustomerName(request.customerName());
         order.setAddress(request.address());
         order.setCustomerEmail(request.customerEmail());
         order.setCreatedAt(LocalDateTime.now());
-        order.setStatus("CONFIRMED");
+        order.setStatus("PENDING"); // Đặt trạng thái ban đầu là PENDING
 
         BigDecimal totalAmount = BigDecimal.ZERO;
         Set<OrderItem> items = new HashSet<>();
+        List<SagaOrderItem> sagaItems = new ArrayList<>();
 
+        // 3. Chuẩn bị danh sách OrderItem và tính toán giá bán
         for (OrderItemRequest itemReq : request.items()) {
-
             Product product = productRepository.findById(itemReq.productId())
-                    .orElseThrow(() ->
-                            new RuntimeException("Product not found: " + itemReq.productId())
-                    );
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy sản phẩm: " + itemReq.productId()));
 
-            WarehouseStock stock = warehouseStockRepository
-                    .findByWarehouseAndProduct(warehouse, product)
-                    .orElseThrow(() ->
-                            new RuntimeException(
-                                    "Product not available in warehouse: " + product.getName()
-                            )
-                    );
+            // Tính giá bán sau khi trừ chiết khấu (đúng theo công thức cũ của Châu)
+            BigDecimal sellPrice = product.getPrice().multiply(BigDecimal.ONE.subtract(product.getCurrentDiscountPercentage()));
 
-            if (stock.getQuantity() < itemReq.quantity()) {
-                throw new RuntimeException(
-                        "Not enough stock for product: " + product.getName()
-                );
-            }
-
-            stock.setQuantity(stock.getQuantity() - itemReq.quantity());
-            warehouseStockRepository.save(stock);
-            BigDecimal importPrice =  stockImportRepository.findLatestImportPrice(product.getId(), warehouse.getId());
             OrderItem item = new OrderItem();
             item.setId(UUID.randomUUID().toString());
             item.setProduct(product);
             item.setQuantity(itemReq.quantity());
             item.setOrder(order);
-            item.setSellPrice(product.getPrice().subtract(product.getPrice().multiply(product.getCurrentDiscountPercentage())));
-            BigDecimal sellPrice = product.getPrice() .multiply(BigDecimal.ONE.subtract(product.getCurrentDiscountPercentage()));
             item.setSellPrice(sellPrice);
+            item.setCostPrice(product.getAvgCost()); // Gán giá vốn từ sản phẩm
+
             items.add(item);
-            totalAmount = totalAmount.add(
-                    item.getSellPrice().multiply(BigDecimal.valueOf(itemReq.quantity()))
-            );
+
+            // Cộng dồn tổng tiền
+            totalAmount = totalAmount.add(sellPrice.multiply(BigDecimal.valueOf(itemReq.quantity())));
+
+            // Đưa vào danh sách gửi sang Kafka
+            sagaItems.add(new SagaOrderItem(product.getId(), itemReq.quantity(), sellPrice));
         }
 
         order.setItems(items);
         order.setTotalAmount(totalAmount);
 
-        Order saved = orderRepository.save(order);
-        for (OrderItemRequest itemReq : request.items()) {
-            inventoryService.sell(itemReq.productId(), itemReq.quantity(), saved.getId(),warehouse.getId());
-        }
-        pendingOrderService.deletePendingOrder(token);
-        gmailServiceImp.sendSuccessEmail(request.customerEmail(), saved);
+        // 4. Lưu đơn hàng vào Database dưới trạng thái PENDING
+        Order savedOrder = orderRepository.save(order);
 
-        return saved;
+        // 5. Gửi thông điệp yêu cầu trừ kho bất đồng bộ qua Kafka
+        OrderStockCommand command = new OrderStockCommand(savedOrder.getId(), sagaItems);
+        try {
+            // Gửi lệnh xử lý sang topic "inventory-commands"
+            kafkaTemplate.send("inventory-commands", savedOrder.getId(), command);
+        } catch (Exception e) {
+            throw new RuntimeException("Lỗi kết nối hệ thống hàng đợi Kafka. Vui lòng thử lại!");
+        }
+
+        // 6. Xóa token đơn hàng tạm thời
+        pendingOrderService.deletePendingOrder(token);
+
+        return savedOrder;
     }
+
     @Transactional(readOnly = true)
     public Warehouse selectBestWarehouse(OrderRequest request) {
 

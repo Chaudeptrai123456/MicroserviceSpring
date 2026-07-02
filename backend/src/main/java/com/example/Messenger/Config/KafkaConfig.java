@@ -74,12 +74,16 @@ import java.util.Map;
 //        return new KafkaTemplate<>(producerFactory());
 //    }
 //}
+import org.springframework.kafka.core.*;
+import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 
 @Configuration
 public class KafkaConfig {
+
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
-    // 🧩 Tạo topic nếu chưa tồn tại
+
+
     @Bean
     public NewTopic analysisTopic() {
         return TopicBuilder.name("analysis-topic")
@@ -87,38 +91,65 @@ public class KafkaConfig {
                 .replicas(1)
                 .build();
     }
-    // 🏭 Tạo ProducerFactory cho OrderRequest
+
+    @Bean
+    public NewTopic inventoryCommandsTopic() {
+        return TopicBuilder.name("inventory-commands")
+                .partitions(3)
+                .replicas(1)
+                .build();
+    }
+
+    @Bean
+    public NewTopic sagaRepliesTopic() {
+        return TopicBuilder.name("saga-replies")
+                .partitions(3)
+                .replicas(1)
+                .build();
+    }
+
+
     @Bean
     public ProducerFactory<String, Object> producerFactory() {
         Map<String, Object> config = new HashMap<>();
         config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
-        config.put(JsonSerializer.ADD_TYPE_INFO_HEADERS, false); // optional: tránh lỗi type header
+
+        // ⚡ QUAN TRỌNG: Để true để gửi thông tin Class kèm theo tin nhắn phục vụ cho Saga
+        config.put(JsonSerializer.ADD_TYPE_INFO_HEADERS, true);
+
         return new DefaultKafkaProducerFactory<>(config);
     }
-    // 🛠 Tạo KafkaTemplate
+
     @Bean
     public KafkaTemplate<String, Object> kafkaTemplate() {
         return new KafkaTemplate<>(producerFactory());
     }
+
     @Bean
-    public ConsumerFactory<String, OrderRequest> consumerFactory() {
-        JsonDeserializer<OrderRequest> deserializer = new JsonDeserializer<>(OrderRequest.class);
-        deserializer.addTrustedPackages("*");
+    public ConsumerFactory<String, Object> consumerFactory() {
+        JsonDeserializer<Object> jsonDeserializer = new JsonDeserializer<>();
+        jsonDeserializer.addTrustedPackages("com.example.Messenger.*"); // Tin tưởng các class trong package của Châu
 
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "order-service-group");
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "ecom-saga-group");
 
-        return new DefaultKafkaConsumerFactory<>(props,  new StringDeserializer(), deserializer);
+        // Sử dụng ErrorHandlingDeserializer bọc ngoài để tránh bị treo hệ thống khi lỗi giải mã
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+
+        return new DefaultKafkaConsumerFactory<>(
+                props,
+                new StringDeserializer(),
+                new ErrorHandlingDeserializer<>(jsonDeserializer)
+        );
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, OrderRequest> kafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, OrderRequest> factory = new ConcurrentKafkaListenerContainerFactory<>();
+    public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
         return factory;
     }
